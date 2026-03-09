@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rematch Export</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0c10;
+            --surface: #111318;
+            --surface-raised: #181a20;
+            --border: rgba(255,255,255,0.07);
+            --border-hover: rgba(5,150,105,0.25);
+            --accent: #059669;
+            --accent-glow: rgba(5,150,105,0.25);
+            --accent-light: #34d399;
+            --text: #e8eaf0;
+            --muted: #6b7280;
+            --row-hover: rgba(5,150,105,0.04);
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 48px 16px;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -40%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 700px;
+            height: 500px;
+            background: radial-gradient(ellipse, rgba(5,150,105,0.06) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            width: 680px;
+            max-width: 100%;
+            animation: fadeUp 0.6s ease both;
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 36px;
+        }
+
+        .brand-name {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.1rem;
+            color: var(--accent-light);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .brand-sub {
+            font-size: 0.68rem;
+            color: var(--muted);
+            margin-top: 2px;
+            letter-spacing: 0.04em;
+        }
+
+        h1 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.6rem;
+            font-weight: 400;
+            color: #f1f3f8;
+            margin-top: 24px;
+            letter-spacing: -0.01em;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 0.78rem;
+            margin-top: 6px;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            animation: fadeUp 0.6s 0.1s ease both;
+        }
+
+        .count-label {
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        .count-label strong {
+            color: var(--accent-light);
+        }
+
+        .toggle-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.72rem;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(5,150,105,0.1);
+            border-color: var(--border-hover);
+            color: var(--accent-light);
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 32px 80px rgba(0,0,0,0.4);
+            animation: fadeUp 0.6s 0.15s ease both;
+        }
+
+        .table-wrap {
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .table-wrap::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .table-wrap::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .table-wrap::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        thead th {
+            background: var(--surface-raised);
+            padding: 12px 16px;
+            font-size: 0.68rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        thead th:first-child {
+            padding-left: 20px;
+            width: 48px;
+        }
+
+        tbody tr {
+            transition: background 0.15s;
+            cursor: pointer;
+        }
+
+        tbody tr:hover {
+            background: var(--row-hover);
+        }
+
+        tbody td {
+            padding: 11px 16px;
+            font-size: 0.8rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            color: #c5c9d6;
+        }
+
+        tbody td:first-child {
+            padding-left: 20px;
+            width: 48px;
+        }
+
+        tbody td.chat-name {
+            color: var(--text);
+            font-weight: 500;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        tbody td.msg-count {
+            color: var(--accent-light);
+            font-weight: 500;
+        }
+
+        .checkbox-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border: 1.5px solid rgba(255,255,255,0.15);
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        input[type="checkbox"]:hover {
+            border-color: var(--accent);
+        }
+
+        input[type="checkbox"]:checked {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 5px;
+            width: 5px;
+            height: 9px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .export-bar {
+            padding: 20px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            animation: fadeUp 0.6s 0.25s ease both;
+            margin-top: 20px;
+        }
+
+        .selected-count {
+            font-size: 0.76rem;
+            color: var(--muted);
+        }
+
+        .selected-count strong {
+            color: var(--text);
+        }
+
+        .export-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            font-family: 'DM Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 12px 28px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .export-btn:hover {
+            background: #047857;
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .export-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="brand-name">Rematch</div>
+            <div class="brand-sub">iMessage Export</div>
+            <h1>Select conversations</h1>
+            <p class="subtitle">Choose the conversations you'd like to export for analysis.</p>
+        </div>
+
+        <div class="toolbar">
+            <span class="count-label"><strong id="selectedCount">0</strong> selected</span>
+            <button class="toggle-btn" onclick="toggleAll()">Select all</button>
+        </div>
+
+        <form method="POST" action="/export">
+            <div class="card">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Conversation</th>
+                                <th>Messages</th>
+                                <th>From</th>
+                                <th>To</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for chat in chats %}
+                            <tr onclick="toggleRow(this)">
+                                <td>
+                                    <div class="checkbox-wrap">
+                                        <input type="checkbox" class="chatbox" name="chat_ids" value="{{ chat.id }}" onclick="event.stopPropagation()">
+                                    </div>
+                                </td>
+                                <td class="chat-name">{{ chat.name }}</td>
+                                <td class="msg-count">{{ chat.count }}</td>
+                                <td>{{ chat.earliest }}</td>
+                                <td>{{ chat.latest }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="export-bar">
+                <span class="selected-count"><strong id="selectedCount2">0</strong> conversations selected</span>
+                <button type="submit" class="export-btn" id="exportBtn" disabled>
+                    Export selected
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function updateCount() {
+            const checked = document.querySelectorAll('.chatbox:checked').length;
+            document.getElementById('selectedCount').textContent = checked;
+            document.getElementById('selectedCount2').textContent = checked;
+            document.getElementById('exportBtn').disabled = checked === 0;
+        }
+
+        function toggleAll() {
+            const boxes = document.querySelectorAll('.chatbox');
+            const allChecked = Array.from(boxes).every(b => b.checked);
+            boxes.forEach(b => b.checked = !allChecked);
+            const btn = document.querySelector('.toggle-btn');
+            btn.textContent = allChecked ? 'Select all' : 'Deselect all';
+            updateCount();
+        }
+
+        function toggleRow(row) {
+            const box = row.querySelector('.chatbox');
+            box.checked = !box.checked;
+            updateCount();
+        }
+
+        document.querySelectorAll('.chatbox').forEach(box => {
+            box.addEventListener('change', updateCount);
+        });
+    </script>
+</body>
+</html>
