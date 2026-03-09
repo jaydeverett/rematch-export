@@ -94,6 +94,46 @@
             margin-top: 6px;
         }
 
+        .search-bar {
+            margin-bottom: 16px;
+            animation: fadeUp 0.6s 0.08s ease both;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.82rem;
+            padding: 10px 16px 10px 40px;
+            border-radius: 10px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input::placeholder {
+            color: var(--muted);
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+
+        .search-wrap {
+            position: relative;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 0.82rem;
+            pointer-events: none;
+        }
+
         .toolbar {
             display: flex;
             align-items: center;
@@ -109,6 +149,14 @@
 
         .count-label strong {
             color: var(--accent-light);
+        }
+
+        .no-results {
+            padding: 32px 16px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.8rem;
+            display: none;
         }
 
         .toggle-btn {
@@ -312,6 +360,13 @@
             <p class="subtitle">Choose the conversations you'd like to export for analysis.</p>
         </div>
 
+        <div class="search-bar">
+            <div class="search-wrap">
+                <span class="search-icon">&#x1F50D;</span>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search conversations..." oninput="filterRows()">
+            </div>
+        </div>
+
         <div class="toolbar">
             <span class="count-label"><strong id="selectedCount">0</strong> selected</span>
             <button class="toggle-btn" onclick="toggleAll()">Select all</button>
@@ -346,6 +401,7 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                    <div class="no-results" id="noResults">No conversations match your search.</div>
                 </div>
             </div>
 
@@ -366,10 +422,23 @@
             document.getElementById('exportBtn').disabled = checked === 0;
         }
 
+        function filterRows() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const rows = document.querySelectorAll('tbody tr');
+            let visible = 0;
+            rows.forEach(row => {
+                const name = row.querySelector('.chat-name').textContent.toLowerCase();
+                const match = name.includes(query);
+                row.style.display = match ? '' : 'none';
+                if (match) visible++;
+            });
+            document.getElementById('noResults').style.display = visible === 0 ? 'block' : 'none';
+        }
+
         function toggleAll() {
-            const boxes = document.querySelectorAll('.chatbox');
-            const allChecked = Array.from(boxes).every(b => b.checked);
-            boxes.forEach(b => b.checked = !allChecked);
+            const visibleBoxes = Array.from(document.querySelectorAll('tbody tr')).filter(r => r.style.display !== 'none').map(r => r.querySelector('.chatbox'));
+            const allChecked = visibleBoxes.every(b => b.checked);
+            visibleBoxes.forEach(b => b.checked = !allChecked);
             const btn = document.querySelector('.toggle-btn');
             btn.textContent = allChecked ? 'Select all' : 'Deselect all';
             updateCount();
