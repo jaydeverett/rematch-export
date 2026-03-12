@@ -220,9 +220,46 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* Reconnect overlay */
+        .reconnect-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 12, 16, 0.92);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .reconnect-overlay.visible {
+            display: flex;
+        }
+
+        .reconnect-spinner {
+            width: 28px;
+            height: 28px;
+            border: 2.5px solid rgba(5,150,105,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+
+        .reconnect-text {
+            font-size: 0.88rem;
+            color: var(--muted);
+        }
     </style>
 </head>
 <body>
+    <!-- Reconnect overlay -->
+    <div class="reconnect-overlay" id="reconnectOverlay">
+        <div class="reconnect-spinner"></div>
+        <div class="reconnect-text">Restarting... please wait</div>
+    </div>
+
     <div class="card">
         <div class="brand">
             <div class="brand-name">Rematch</div>
@@ -238,17 +275,21 @@
         <div class="steps">
             <div class="step">
                 <div class="step-num">1</div>
-                <div class="step-text">Open <strong>System Settings</strong> → <strong>Privacy & Security</strong> → <strong>Full Disk Access</strong></div>
+                <div class="step-text">A <strong>System Settings</strong> window should have opened automatically. Navigate to <strong>Full Disk Access</strong> in the sidebar.</div>
             </div>
             <div class="step">
                 <div class="step-num">2</div>
-                <div class="step-text">Locate and select <code>{{app_name}}</code></div>
+                <div class="step-text">Click the <strong>+</strong> button, then find and add <code>{{app_name}}</code> from your Applications or Downloads folder.</div>
             </div>
             <div class="step">
                 <div class="step-num">3</div>
-                <div class="step-text">Toggle the switch to <strong>ON</strong> and authenticate if prompted</div>
+                <div class="step-text">Make sure the toggle next to <code>{{app_name}}</code> is <strong>ON</strong>. Authenticate with your password or Touch ID if prompted.</div>
             </div>
         </div>
+
+        <div class="divider"></div>
+
+        <p style="text-align: center; color: var(--muted); font-size: 0.72rem; margin-bottom: 24px; animation: fadeUp 0.5s 0.54s ease both;">This page will refresh automatically once access is granted.</p>
 
         <div class="divider"></div>
 
@@ -275,6 +316,28 @@
       }
 
       setInterval(checkAccess, 2000);
+
+      // Reconnect loop — detect server restart (e.g. after granting FDA)
+      (function() {
+          let serverWasDown = false;
+          const overlay = document.getElementById('reconnectOverlay');
+
+          async function checkServer() {
+              try {
+                  const res = await fetch('/', { method: 'HEAD', cache: 'no-store' });
+                  if (serverWasDown && res.ok) {
+                      window.location.reload();
+                  }
+              } catch (e) {
+                  if (!serverWasDown) {
+                      serverWasDown = true;
+                      overlay.classList.add('visible');
+                  }
+              }
+          }
+
+          setInterval(checkServer, 500);
+      })();
     </script>
 </body>
 </html>

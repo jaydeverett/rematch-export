@@ -71,8 +71,8 @@ def get_chat_summaries():
     db = messages.get_db()
     summaries = []
 
-    for chat in db.chats():
-        msgs = list(db.messages(chat_id=chat.id, limit=VERY_LARGE_LIMIT))
+    for chat_summary in db.chats():
+        msgs = list(db.messages(chat_id=chat_summary.id, limit=VERY_LARGE_LIMIT))
 
         if not msgs:
             continue
@@ -85,20 +85,29 @@ def get_chat_summaries():
         earliest = min(dates).strftime("%Y-%m-%d")
         latest = max(dates).strftime("%Y-%m-%d")
 
-        chat_name = f"{chat.identifier}-{chat.display_name}"
+        chat_name = chat_summary.display_name or chat_summary.identifier
+
+        # Check participant count to detect group chats
+        full_chat = db.chat(chat_summary.id)
+        is_group = len(full_chat.participants) > 1
 
         summaries.append({
-            "id": chat.id,
+            "id": chat_summary.id,
             "name": chat_name,
             "count": len(msgs),
             "earliest": earliest,
-            "latest": latest
+            "latest": latest,
+            "is_group": is_group
         })
 
     # Sort by message count descending
     summaries.sort(key=lambda x: x["count"], reverse=True)
 
-    return summaries
+    # Split into individual and group
+    individual = [c for c in summaries if not c["is_group"]]
+    groups = [c for c in summaries if c["is_group"]]
+
+    return individual, groups
 
 
 # -------------------------
@@ -113,8 +122,8 @@ def index():
 
         return render_template('access_template.html', app_name=APP_NAME)
 
-    chats = get_chat_summaries()
-    return render_template('main_template.html', app_name=APP_NAME, chats=chats)
+    individual, groups = get_chat_summaries()
+    return render_template('main_template.html', app_name=APP_NAME, individual=individual, groups=groups)
 
 @app.route("/check-access")
 def check_access():
@@ -135,7 +144,7 @@ def export():
     for chat_id in selected_ids:
         chat_id = int(chat_id)
         chat = db.chat(chat_id)
-        chat_name = f"{chat.identifier}-{chat.display_name}"
+        chat_name = chat.display_name or chat.identifier
 
         for msg in db.messages(chat_id=chat_id, limit=VERY_LARGE_LIMIT):
             export_data.append({
@@ -150,10 +159,11 @@ def export():
     with open(temp.name, "w", encoding="utf-8") as f:
         json.dump(export_data, f, indent=2)
 
+    today = datetime.now().strftime("%Y-%m-%d")
     return send_file(
         temp.name,
         as_attachment=True,
-        download_name="messages_export.json"
+        download_name=f"Rematch Export - {today}.json"
     )
 
 
