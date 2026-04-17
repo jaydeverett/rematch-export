@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rematch Export</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0c10;
+            --surface: #111318;
+            --surface-raised: #181a20;
+            --border: rgba(255,255,255,0.07);
+            --border-hover: rgba(5,150,105,0.25);
+            --accent: #059669;
+            --accent-glow: rgba(5,150,105,0.25);
+            --accent-light: #34d399;
+            --text: #e8eaf0;
+            --muted: #6b7280;
+            --row-hover: rgba(5,150,105,0.04);
+            --step-bg: rgba(5,150,105,0.12);
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 48px 16px;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -40%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 700px;
+            height: 500px;
+            background: radial-gradient(ellipse, rgba(5,150,105,0.06) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            width: 680px;
+            max-width: 100%;
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .brand {
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .brand-name {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.1rem;
+            color: var(--accent-light);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .brand-sub {
+            font-size: 0.68rem;
+            color: var(--muted);
+            margin-top: 2px;
+            letter-spacing: 0.04em;
+        }
+
+        /* ================================ */
+        /* Step indicator                   */
+        /* ================================ */
+
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            margin: 24px 0 36px;
+        }
+
+        .step-dot {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.72rem;
+            font-weight: 500;
+            color: var(--muted);
+            background: transparent;
+            transition: all 0.4s ease;
+            flex-shrink: 0;
+        }
+
+        .step-dot.active {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 0 16px var(--accent-glow);
+        }
+
+        .step-dot.done {
+            border-color: var(--accent);
+            background: rgba(5,150,105,0.15);
+            color: var(--accent-light);
+        }
+
+        .step-line {
+            width: 60px;
+            height: 2px;
+            background: var(--border);
+            transition: background 0.4s ease;
+        }
+
+        .step-line.done {
+            background: var(--accent);
+        }
+
+        /* ================================ */
+        /* Step 1: FDA Permission           */
+        /* ================================ */
+
+        .fda-section {
+            animation: fadeUp 0.6s ease both;
+        }
+
+        .fda-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 48px 44px;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 32px 80px rgba(0,0,0,0.6);
+            text-align: center;
+        }
+
+        .fda-card h2 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.75rem;
+            font-weight: 400;
+            color: #f1f3f8;
+            letter-spacing: -0.01em;
+            margin-bottom: 8px;
+        }
+
+        .fda-card .subtitle {
+            color: var(--muted);
+            font-size: 0.82rem;
+            margin-bottom: 36px;
+            line-height: 1.6;
+        }
+
+        .fda-steps {
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 32px;
+        }
+
+        .fda-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 14px 16px;
+            background: rgba(255,255,255,0.025);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+
+        .fda-step-num {
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            color: #fff;
+            border-radius: 7px;
+            font-size: 0.76rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+
+        .fda-step-text {
+            font-size: 0.88rem;
+            line-height: 1.6;
+            color: #c5c9d6;
+        }
+
+        .fda-step-text strong {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .fda-hint {
+            color: var(--muted);
+            font-size: 0.74rem;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        .fda-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 0 0 24px;
+        }
+
+        .fda-footer {
+            text-align: center;
+        }
+
+        .fda-waiting {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 0.78rem;
+        }
+
+        .spinner-ring {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(5,150,105,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+
+        .fda-anchor {
+            color: var(--accent-light);
+            font-size: 0.76rem;
+            margin-top: 16px;
+        }
+
+        .fda-retry-hint {
+            display: none;
+            color: var(--muted);
+            font-size: 0.74rem;
+            margin-top: 20px;
+            padding: 12px 16px;
+            background: rgba(255,255,255,0.025);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            line-height: 1.6;
+            animation: fadeIn 0.4s ease both;
+        }
+
+        .fda-retry-hint.visible {
+            display: block;
+        }
+
+        /* ================================ */
+        /* Transition: access granted       */
+        /* ================================ */
+
+        .transition-card {
+            display: none;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 48px 44px;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 32px 80px rgba(0,0,0,0.6);
+            text-align: center;
+            animation: fadeUp 0.5s ease both;
+        }
+
+        .transition-card.visible {
+            display: block;
+        }
+
+        .transition-check {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 20px;
+            background: var(--step-bg);
+            border: 1px solid rgba(5,150,105,0.3);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .transition-card h3 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.3rem;
+            font-weight: 400;
+            color: #f1f3f8;
+            margin-bottom: 12px;
+        }
+
+        .transition-card p {
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(5,150,105,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+            margin: 16px auto 0;
+        }
+
+        /* ================================ */
+        /* Step 2: Conversation Selection   */
+        /* ================================ */
+
+        .select-section {
+            display: none;
+            animation: fadeUp 0.6s ease both;
+        }
+
+        .select-section.visible {
+            display: block;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.6rem;
+            font-weight: 400;
+            color: #f1f3f8;
+            margin-top: 8px;
+            letter-spacing: -0.01em;
+        }
+
+        .header .subtitle {
+            color: var(--muted);
+            font-size: 0.78rem;
+            margin-top: 8px;
+            line-height: 1.6;
+            max-width: 520px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 3px;
+        }
+
+        .tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.76rem;
+            font-weight: 500;
+            padding: 9px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .tab:hover { color: var(--text); }
+
+        .tab.active {
+            background: var(--surface-raised);
+            color: var(--text);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .tab-count {
+            font-size: 0.68rem;
+            color: var(--muted);
+            background: rgba(255,255,255,0.05);
+            padding: 1px 7px;
+            border-radius: 10px;
+        }
+
+        .tab.active .tab-count {
+            background: rgba(5,150,105,0.15);
+            color: var(--accent-light);
+        }
+
+        .search-bar { margin-bottom: 16px; }
+
+        .search-wrap { position: relative; }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 0.82rem;
+            pointer-events: none;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.82rem;
+            padding: 10px 16px 10px 40px;
+            border-radius: 10px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input::placeholder { color: var(--muted); }
+        .search-input:focus { border-color: var(--accent); }
+
+        .selection-panel { margin-bottom: 16px; }
+
+        .selection-header {
+            font-size: 0.72rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin-bottom: 10px;
+        }
+
+        .selection-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .selection-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(5,150,105,0.1);
+            border: 1px solid rgba(5,150,105,0.2);
+            color: var(--accent-light);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.72rem;
+            padding: 5px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            max-width: 200px;
+            transition: all 0.15s;
+        }
+
+        .selection-chip:hover {
+            background: rgba(5,150,105,0.2);
+            border-color: rgba(5,150,105,0.4);
+        }
+
+        .chip-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .chip-remove {
+            flex-shrink: 0;
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1;
+        }
+
+        .selection-chip:hover .chip-remove { color: var(--accent-light); }
+
+        .selection-empty {
+            font-size: 0.72rem;
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .tab-hint {
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        .toggle-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.72rem;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(5,150,105,0.1);
+            border-color: var(--border-hover);
+            color: var(--accent-light);
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 32px 80px rgba(0,0,0,0.4);
+        }
+
+        .table-wrap { max-height: 50vh; overflow-y: auto; }
+        .table-wrap::-webkit-scrollbar { width: 6px; }
+        .table-wrap::-webkit-scrollbar-track { background: transparent; }
+        .table-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+        table { width: 100%; border-collapse: collapse; }
+        thead { position: sticky; top: 0; z-index: 2; }
+
+        thead th {
+            background: var(--surface-raised);
+            padding: 12px 16px;
+            font-size: 0.68rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        thead th:first-child { padding-left: 20px; width: 48px; }
+
+        tbody tr { transition: background 0.15s; cursor: pointer; }
+        tbody tr:hover { background: var(--row-hover); }
+
+        tbody td {
+            padding: 11px 16px;
+            font-size: 0.8rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            color: #c5c9d6;
+        }
+
+        tbody td:first-child { padding-left: 20px; width: 48px; }
+
+        tbody td.chat-name {
+            color: var(--text);
+            font-weight: 500;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        tbody td.msg-count {
+            color: var(--accent-light);
+            font-weight: 500;
+        }
+
+        .checkbox-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border: 1.5px solid rgba(255,255,255,0.15);
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        input[type="checkbox"]:hover { border-color: var(--accent); }
+
+        input[type="checkbox"]:checked {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 5px;
+            width: 5px;
+            height: 9px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .no-results {
+            padding: 32px 16px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.8rem;
+            display: none;
+        }
+
+        .empty-section {
+            padding: 32px 16px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.78rem;
+            display: none;
+        }
+
+        .export-bar {
+            padding: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 8px;
+        }
+
+        .selected-count {
+            font-size: 0.76rem;
+            color: var(--muted);
+        }
+
+        .selected-count strong { color: var(--text); }
+
+        .export-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            font-family: 'DM Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 12px 28px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .export-btn:hover {
+            background: #047857;
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .export-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* ================================ */
+        /* Step 3: Export Complete           */
+        /* ================================ */
+
+        .done-section {
+            display: none;
+            animation: fadeUp 0.6s ease both;
+        }
+
+        .done-section.visible {
+            display: block;
+        }
+
+        .done-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 48px 44px;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 32px 80px rgba(0,0,0,0.6);
+            text-align: center;
+        }
+
+        .done-check {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 24px;
+            background: var(--step-bg);
+            border: 2px solid rgba(5,150,105,0.3);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+
+        .done-card h2 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: #f1f3f8;
+            margin-bottom: 12px;
+        }
+
+        .done-card p {
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.6;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .done-card .filename {
+            display: inline-block;
+            margin-top: 16px;
+            background: rgba(5,150,105,0.1);
+            border: 1px solid rgba(5,150,105,0.2);
+            color: var(--accent-light);
+            font-size: 0.76rem;
+            padding: 6px 14px;
+            border-radius: 8px;
+        }
+
+        .done-card .next-step {
+            margin-top: 28px;
+            padding: 16px 20px;
+            background: rgba(255,255,255,0.025);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: #c5c9d6;
+            font-size: 0.82rem;
+            line-height: 1.6;
+        }
+
+        .done-card .next-step strong {
+            color: var(--text);
+        }
+
+        .export-more-btn {
+            margin-top: 20px;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.76rem;
+            padding: 8px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .export-more-btn:hover {
+            background: rgba(255,255,255,0.05);
+            color: var(--text);
+        }
+
+        /* ================================ */
+        /* Reconnect overlay                */
+        /* ================================ */
+
+        .reconnect-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 12, 16, 0.92);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .reconnect-overlay.visible {
+            display: flex;
+        }
+
+        .reconnect-spinner {
+            width: 28px;
+            height: 28px;
+            border: 2.5px solid rgba(5,150,105,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+
+        .reconnect-text {
+            font-size: 0.88rem;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <!-- Reconnect overlay -->
+    <div class="reconnect-overlay" id="reconnectOverlay">
+        <div class="reconnect-spinner"></div>
+        <div class="reconnect-text">Reconnecting... please wait</div>
+    </div>
+
+    <div class="container">
+        <div class="brand">
+            <div class="brand-name">Rematch</div>
+            <div class="brand-sub">iMessage Export</div>
+        </div>
+
+        <!-- Step indicator -->
+        <div class="step-indicator">
+            <div class="step-dot active" id="dot1">1</div>
+            <div class="step-line" id="line1"></div>
+            <div class="step-dot" id="dot2">2</div>
+            <div class="step-line" id="line2"></div>
+            <div class="step-dot" id="dot3">3</div>
+        </div>
+
+        <!-- =============================== -->
+        <!-- Step 1: Full Disk Access         -->
+        <!-- =============================== -->
+        <div class="fda-section" id="fdaSection">
+            <div class="fda-card">
+                <h2>One quick permission</h2>
+                <p class="subtitle">
+                    To read your messages, macOS needs you to allow access.<br>
+                    A <strong>System Settings</strong> window should have opened.
+                </p>
+
+                <div class="fda-divider"></div>
+
+                <div class="fda-steps">
+                    <div class="fda-step">
+                        <div class="fda-step-num">1</div>
+                        <div class="fda-step-text">
+                            Find <strong>"RematchExport"</strong> in the list
+                            <div class="fda-hint">If it's not listed, click the <strong>+</strong> button and add it from your Downloads folder.</div>
+                        </div>
+                    </div>
+                    <div class="fda-step">
+                        <div class="fda-step-num">2</div>
+                        <div class="fda-step-text">
+                            <strong>Flip the switch on</strong>
+                            <div class="fda-hint">You may need your password or Touch ID to confirm.</div>
+                        </div>
+                    </div>
+                    <div class="fda-step">
+                        <div class="fda-step-num">3</div>
+                        <div class="fda-step-text">
+                            <strong>Come back to this page</strong> &mdash; it updates automatically
+                        </div>
+                    </div>
+                </div>
+
+                <div class="fda-divider"></div>
+
+                <div class="fda-footer">
+                    <div class="fda-waiting">
+                        <div class="spinner-ring"></div>
+                        Waiting for permission...
+                    </div>
+                    <p class="fda-anchor">Don't close this tab. We're waiting for you.</p>
+
+                    <div class="fda-retry-hint" id="fdaRetryHint">
+                        Still waiting? Sometimes macOS needs you to <strong>quit RematchExport and reopen it</strong> for the permission to take effect. Don't worry &mdash; this tab will reconnect automatically.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transition: access granted -->
+        <div class="transition-card" id="transitionCard">
+            <div class="transition-check">&#10003;</div>
+            <h3>Access granted</h3>
+            <p>Loading your conversations...</p>
+            <div class="loading-spinner"></div>
+        </div>
+
+        <!-- =============================== -->
+        <!-- Step 2: Conversation Selection   -->
+        <!-- =============================== -->
+        <div class="select-section" id="selectSection">
+            <div class="header">
+                <h1>Select conversations</h1>
+                <p class="subtitle">Pick conversations with people you know well &mdash; friends, exes, family, anyone you text regularly. The more variety, the better your analysis. There's no wrong answer.</p>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('individual')" id="tab-individual">
+                    Individual
+                    <span class="tab-count" id="individual-tab-count">0</span>
+                </button>
+                <button class="tab" onclick="switchTab('group')" id="tab-group">
+                    Group chats
+                    <span class="tab-count" id="group-tab-count">0</span>
+                </button>
+            </div>
+
+            <div class="search-bar">
+                <div class="search-wrap">
+                    <span class="search-icon">&#x1F50D;</span>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Search conversations..." oninput="filterRows()">
+                </div>
+            </div>
+
+            <div class="selection-panel" id="selectionPanel">
+                <div class="selection-header">Selected for export</div>
+                <div class="selection-list" id="selectionList">
+                    <span class="selection-empty" id="selectionEmpty">No conversations selected yet</span>
+                </div>
+            </div>
+
+            <div class="toolbar">
+                <span class="tab-hint" id="tabHint">These are your highest-signal conversations.</span>
+                <button class="toggle-btn" onclick="toggleAll()">Select all</button>
+            </div>
+
+            <div class="card">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Conversation</th>
+                                <th>Messages</th>
+                                <th>From</th>
+                                <th>To</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                        </tbody>
+                    </table>
+                    <div class="no-results" id="noResults">No conversations match your search.</div>
+                    <div class="empty-section" id="emptySection">No conversations found.</div>
+                </div>
+            </div>
+
+            <div class="export-bar">
+                <span class="selected-count"><strong id="selectedCount">0</strong> conversations selected</span>
+                <button class="export-btn" id="exportBtn" disabled onclick="doExport()">
+                    Export selected
+                </button>
+            </div>
+        </div>
+
+        <!-- =============================== -->
+        <!-- Step 3: Export Complete           -->
+        <!-- =============================== -->
+        <div class="done-section" id="doneSection">
+            <div class="done-card">
+                <div class="done-check">&#10003;</div>
+                <h2>Export complete</h2>
+                <p>Your conversations have been saved.</p>
+                <div class="filename" id="exportFilename"></div>
+
+                <div class="next-step">
+                    <strong>Head back to Rematch</strong> and upload this file on the iMessage upload page. You can close this app once you've uploaded.
+                </div>
+
+                <button class="export-more-btn" onclick="backToSelect()">Export more conversations</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ================================
+        // State
+        // ================================
+        let activeTab = 'individual';
+        let conversationData = { individual: [], groups: [] };
+        let currentStep = {{ 2 if has_access else 1 }};
+        let pollCount = 0;
+
+        // ================================
+        // Initialization
+        // ================================
+        (function init() {
+            if (currentStep === 2) {
+                // Already have access — skip FDA, load conversations
+                showStep(2);
+                loadConversations();
+            } else {
+                showStep(1);
+                startAccessPolling();
+            }
+        })();
+
+        // ================================
+        // Step management
+        // ================================
+        function showStep(step) {
+            currentStep = step;
+
+            // Update dots
+            for (let i = 1; i <= 3; i++) {
+                const dot = document.getElementById('dot' + i);
+                dot.classList.remove('active', 'done');
+                if (i < step) dot.classList.add('done');
+                if (i === step) dot.classList.add('active');
+            }
+
+            // Update lines
+            document.getElementById('line1').classList.toggle('done', step >= 2);
+            document.getElementById('line2').classList.toggle('done', step >= 3);
+
+            // Show/hide sections
+            document.getElementById('fdaSection').style.display = (step === 1) ? 'block' : 'none';
+            document.getElementById('transitionCard').classList.remove('visible');
+            document.getElementById('selectSection').classList.toggle('visible', step === 2);
+            document.getElementById('doneSection').classList.toggle('visible', step === 3);
+        }
+
+        // ================================
+        // Step 1: FDA polling
+        // ================================
+        let pollInterval;
+
+        function startAccessPolling() {
+            pollInterval = setInterval(async () => {
+                pollCount++;
+                try {
+                    const res = await fetch('/check-access');
+                    const data = await res.json();
+                    if (data.granted) {
+                        clearInterval(pollInterval);
+                        onAccessGranted();
+                    }
+                } catch (e) {
+                    // Server may be briefly unavailable — ignore
+                }
+
+                // After ~20 seconds (10 polls at 2s), show the retry hint
+                if (pollCount >= 10) {
+                    document.getElementById('fdaRetryHint').classList.add('visible');
+                }
+            }, 2000);
+        }
+
+        async function onAccessGranted() {
+            // Show transition
+            document.getElementById('fdaSection').style.display = 'none';
+            const card = document.getElementById('transitionCard');
+            card.classList.add('visible');
+
+            // Update step indicator to "between 1 and 2"
+            document.getElementById('dot1').classList.remove('active');
+            document.getElementById('dot1').classList.add('done');
+            document.getElementById('line1').classList.add('done');
+
+            // Load conversations, then transition to step 2
+            await loadConversations();
+
+            // Brief pause for the "Access granted" moment to register
+            await new Promise(r => setTimeout(r, 1200));
+
+            card.classList.remove('visible');
+            showStep(2);
+        }
+
+        // ================================
+        // Step 2: Conversation Selection
+        // ================================
+        async function loadConversations() {
+            try {
+                const res = await fetch('/api/conversations');
+                conversationData = await res.json();
+                renderTable();
+            } catch (e) {
+                console.error('Failed to load conversations:', e);
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            const allChats = [
+                ...conversationData.individual.map(c => ({...c, section: 'individual'})),
+                ...conversationData.groups.map(c => ({...c, section: 'group'}))
+            ];
+
+            allChats.forEach(chat => {
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-section', chat.section);
+                tr.setAttribute('data-chat-name', chat.name);
+                tr.setAttribute('data-chat-id', chat.id);
+                tr.onclick = function() { toggleRow(this); };
+                tr.style.display = (chat.section === 'individual') ? '' : 'none';
+
+                tr.innerHTML = `
+                    <td>
+                        <div class="checkbox-wrap">
+                            <input type="checkbox" class="chatbox" value="${chat.id}" onclick="event.stopPropagation()">
+                        </div>
+                    </td>
+                    <td class="chat-name">${escapeHtml(chat.name)}</td>
+                    <td class="msg-count">${chat.count}</td>
+                    <td>${chat.earliest}</td>
+                    <td>${chat.latest}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Update tab counts
+            document.getElementById('individual-tab-count').textContent = conversationData.individual.length;
+            document.getElementById('group-tab-count').textContent = conversationData.groups.length;
+
+            // Attach change listeners
+            document.querySelectorAll('.chatbox').forEach(box => {
+                box.addEventListener('change', updateUI);
+            });
+
+            // Show empty state if needed
+            updateEmptyState();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById('tab-individual').classList.toggle('active', tab === 'individual');
+            document.getElementById('tab-group').classList.toggle('active', tab === 'group');
+            document.getElementById('tabHint').textContent = tab === 'individual'
+                ? 'These are your highest-signal conversations.'
+                : 'Group chats add supplementary context.';
+            document.getElementById('searchInput').value = '';
+            filterRows();
+            updateToggleBtn();
+        }
+
+        function filterRows() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const rows = document.querySelectorAll('#tableBody tr');
+            let visible = 0;
+            let totalInTab = 0;
+
+            rows.forEach(row => {
+                const section = row.dataset.section;
+                const name = row.querySelector('.chat-name').textContent.toLowerCase();
+                const inActiveTab = section === activeTab;
+                const matchesSearch = name.includes(query);
+                const show = inActiveTab && matchesSearch;
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+                if (inActiveTab) totalInTab++;
+            });
+
+            document.getElementById('noResults').style.display = (totalInTab > 0 && visible === 0) ? 'block' : 'none';
+            updateEmptyState();
+        }
+
+        function updateEmptyState() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            let totalInTab = 0;
+            rows.forEach(row => {
+                if (row.dataset.section === activeTab) totalInTab++;
+            });
+            document.getElementById('emptySection').style.display = (totalInTab === 0) ? 'block' : 'none';
+        }
+
+        function updateToggleBtn() {
+            const visibleBoxes = getVisibleCheckboxes();
+            const allChecked = visibleBoxes.length > 0 && visibleBoxes.every(b => b.checked);
+            document.querySelector('.toggle-btn').textContent = allChecked ? 'Deselect all' : 'Select all';
+        }
+
+        function getVisibleCheckboxes() {
+            return Array.from(document.querySelectorAll('#tableBody tr'))
+                .filter(r => r.style.display !== 'none')
+                .map(r => r.querySelector('.chatbox'));
+        }
+
+        function toggleAll() {
+            const visibleBoxes = getVisibleCheckboxes();
+            const allChecked = visibleBoxes.length > 0 && visibleBoxes.every(b => b.checked);
+            visibleBoxes.forEach(b => b.checked = !allChecked);
+            updateUI();
+        }
+
+        function toggleRow(row) {
+            const box = row.querySelector('.chatbox');
+            box.checked = !box.checked;
+            updateUI();
+        }
+
+        function removeSelection(chatId) {
+            const box = document.querySelector(`.chatbox[value="${chatId}"]`);
+            if (box) {
+                box.checked = false;
+                updateUI();
+            }
+        }
+
+        function updateUI() {
+            const allBoxes = document.querySelectorAll('.chatbox');
+            const checked = Array.from(allBoxes).filter(b => b.checked);
+
+            document.getElementById('selectedCount').textContent = checked.length;
+            document.getElementById('exportBtn').disabled = checked.length === 0;
+
+            const list = document.getElementById('selectionList');
+            const empty = document.getElementById('selectionEmpty');
+
+            if (checked.length === 0) {
+                list.innerHTML = '';
+                list.appendChild(empty);
+                empty.style.display = '';
+            } else {
+                list.innerHTML = '';
+                checked.forEach(box => {
+                    const row = box.closest('tr');
+                    const name = row.dataset.chatName;
+                    const chip = document.createElement('div');
+                    chip.className = 'selection-chip';
+                    chip.onclick = () => removeSelection(box.value);
+                    chip.innerHTML = `<span class="chip-name">${escapeHtml(name)}</span><span class="chip-remove">&times;</span>`;
+                    list.appendChild(chip);
+                });
+            }
+
+            updateToggleBtn();
+        }
+
+        // ================================
+        // Export
+        // ================================
+        async function doExport() {
+            const checked = Array.from(document.querySelectorAll('.chatbox:checked'));
+            const chatIds = checked.map(b => parseInt(b.value));
+
+            if (chatIds.length === 0) return;
+
+            const btn = document.getElementById('exportBtn');
+            btn.disabled = true;
+            btn.textContent = 'Exporting...';
+
+            try {
+                const res = await fetch('/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_ids: chatIds })
+                });
+
+                if (!res.ok) throw new Error('Export failed');
+
+                // Extract filename from Content-Disposition header
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const filenameMatch = disposition.match(/filename="?(.+?)"?$/);
+                const filename = filenameMatch ? filenameMatch[1] : 'Rematch Export.json';
+
+                // Download the file
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                // Show done step
+                document.getElementById('exportFilename').textContent = filename;
+                showStep(3);
+            } catch (e) {
+                console.error('Export error:', e);
+                btn.disabled = false;
+                btn.textContent = 'Export selected';
+                alert('Export failed. Please try again.');
+            }
+        }
+
+        function backToSelect() {
+            showStep(2);
+            // Reset export button
+            document.getElementById('exportBtn').textContent = 'Export selected';
+            document.getElementById('exportBtn').disabled = document.querySelectorAll('.chatbox:checked').length === 0;
+        }
+
+        // ================================
+        // Reconnect loop
+        // ================================
+        (function() {
+            let serverWasDown = false;
+            const overlay = document.getElementById('reconnectOverlay');
+
+            async function checkServer() {
+                try {
+                    const res = await fetch('/check-access', { cache: 'no-store' });
+                    if (serverWasDown && res.ok) {
+                        window.location.reload();
+                    }
+                } catch (e) {
+                    if (!serverWasDown) {
+                        serverWasDown = true;
+                        overlay.classList.add('visible');
+                    }
+                }
+            }
+
+            setInterval(checkServer, 500);
+        })();
+    </script>
+</body>
+</html>

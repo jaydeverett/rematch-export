@@ -12,11 +12,9 @@ import webbrowser
 from datetime import datetime
 import sys
 import subprocess
-import socket
 import signal
 
-from flask import Flask, render_template_string, request, send_file
-from flask import render_template
+from flask import Flask, render_template, request, jsonify, send_file
 import messages
 
 DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
@@ -27,7 +25,6 @@ APP_NAME = 'RematchExport'
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and for packaged app."""
     if hasattr(sys, '_MEIPASS'):
-        # PyInstaller unpacks to a temp folder
         base = sys._MEIPASS
     else:
         base = os.path.dirname(os.path.abspath(__file__))
@@ -56,13 +53,6 @@ def open_full_disk_access_settings():
     ])
 
 
-def get_executable_name():
-    if getattr(sys, 'frozen', False):
-        return os.path.basename(sys.executable)
-    else:
-        return APP_NAME
-
-
 # -------------------------
 # Chat Summary
 # -------------------------
@@ -87,7 +77,6 @@ def get_chat_summaries():
 
         chat_name = chat_summary.display_name or chat_summary.identifier
 
-        # Check participant count to detect group chats
         full_chat = db.chat(chat_summary.id)
         is_group = len(full_chat.participants) > 1
 
@@ -100,10 +89,8 @@ def get_chat_summaries():
             "is_group": is_group
         })
 
-    # Sort by message count descending
     summaries.sort(key=lambda x: x["count"], reverse=True)
 
-    # Split into individual and group
     individual = [c for c in summaries if not c["is_group"]]
     groups = [c for c in summaries if c["is_group"]]
 
@@ -116,27 +103,27 @@ def get_chat_summaries():
 
 @app.route("/")
 def index():
-    if not has_full_disk_access():
+    has_access = has_full_disk_access()
+    if not has_access:
         open_full_disk_access_settings()
-        app_name = get_executable_name()
+    return render_template('app.html', app_name=APP_NAME, has_access=has_access)
 
-        return render_template('access_template.html', app_name=APP_NAME)
-
-    individual, groups = get_chat_summaries()
-    return render_template('main_template.html', app_name=APP_NAME, individual=individual, groups=groups)
 
 @app.route("/check-access")
 def check_access():
-    if has_full_disk_access():
-        # Restart after a short delay so the response can be sent first
-        threading.Timer(0.5, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
-        return {"granted": True}
-    return {"granted": False}
+    return jsonify({"granted": has_full_disk_access()})
+
+
+@app.route("/api/conversations")
+def api_conversations():
+    individual, groups = get_chat_summaries()
+    return jsonify({"individual": individual, "groups": groups})
 
 
 @app.route("/export", methods=["POST"])
 def export():
-    selected_ids = request.form.getlist("chat_ids")
+    data = request.get_json()
+    selected_ids = data.get("chat_ids", [])
 
     db = messages.get_db()
     export_data = []
@@ -171,36 +158,18 @@ def export():
 # App Launcher
 # -------------------------
 
-
 def kill_port(host: str, port: int) -> bool:
-    """Kill any process listening on the given host:port. Returns True if something was killed."""
+    """Kill any process listening on the given host:port."""
     killed = False
-    
-    if sys.platform == "win32":
-        # Windows
-        result = subprocess.run(
-            ["netstat", "-ano"],
-            capture_output=True, text=True
-        )
-        for line in result.stdout.splitlines():
-            if f":{port}" in line and "LISTENING" in line:
-                pid = line.strip().split()[-1]
-                subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True)
-                print(f"Killed PID {pid} on port {port}")
-                killed = True
-    else:
-        # macOS / Linux
-        result = subprocess.run(
-            ["lsof", "-ti", f":{port}"],
-            capture_output=True, text=True
-        )
-        pids = result.stdout.strip().splitlines()
-        for pid in pids:
-            if pid:
-                os.kill(int(pid), signal.SIGKILL)
-                print(f"Killed PID {pid} on port {port}")
-                killed = True
-
+    result = subprocess.run(
+        ["lsof", "-ti", f":{port}"],
+        capture_output=True, text=True
+    )
+    pids = result.stdout.strip().splitlines()
+    for pid in pids:
+        if pid:
+            os.kill(int(pid), signal.SIGKILL)
+            killed = True
     return killed
 
 def launch_browser():
