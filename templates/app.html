@@ -879,10 +879,10 @@
                         <div class="spinner-ring"></div>
                         Waiting for permission...
                     </div>
-                    <p class="fda-anchor">Don't close this tab. We're waiting for you.</p>
+                    <p class="fda-anchor">Don't close this tab. This can take a moment.</p>
 
                     <div class="fda-retry-hint" id="fdaRetryHint">
-                        Still waiting? Sometimes macOS needs you to <strong>quit RematchExport and reopen it</strong> for the permission to take effect. Don't worry &mdash; this tab will reconnect automatically.
+                        macOS sometimes needs you to <strong>quit RematchExport and reopen it</strong> for the permission to take effect. Don't worry &mdash; this tab will reconnect automatically.
                     </div>
                 </div>
             </div>
@@ -1049,8 +1049,8 @@
                     // Server may be briefly unavailable — ignore
                 }
 
-                // After ~20 seconds (10 polls at 2s), show the retry hint
-                if (pollCount >= 10) {
+                // After ~10 seconds (5 polls at 2s), show the retry hint
+                if (pollCount >= 5) {
                     document.getElementById('fdaRetryHint').classList.add('visible');
                 }
             }, 2000);
