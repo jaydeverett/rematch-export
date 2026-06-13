@@ -684,6 +684,80 @@
             box-shadow: none;
         }
 
+        /* Send-to-phone panel */
+        .send-panel {
+            padding: 18px 20px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            margin-top: 12px;
+        }
+
+        .send-label {
+            font-size: 0.72rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin-bottom: 10px;
+        }
+
+        .send-row {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+        }
+
+        .code-input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 500;
+            letter-spacing: 0.4em;
+            text-align: center;
+            text-transform: uppercase;
+            padding: 10px 16px;
+            border-radius: 10px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .code-input::placeholder { color: var(--muted); letter-spacing: 0.4em; }
+        .code-input:focus { border-color: var(--accent); }
+
+        .send-or {
+            font-size: 0.74rem;
+            color: var(--muted);
+            margin-top: 14px;
+        }
+
+        .link-btn {
+            background: none;
+            border: none;
+            color: var(--accent-light);
+            font-family: 'DM Mono', monospace;
+            font-size: 0.74rem;
+            cursor: pointer;
+            text-decoration: underline;
+            padding: 0;
+        }
+
+        .link-btn:disabled {
+            color: var(--muted);
+            cursor: not-allowed;
+            text-decoration: none;
+        }
+
+        .send-error {
+            color: #f87171;
+            font-size: 0.74rem;
+            margin-top: 12px;
+            min-height: 1em;
+        }
+
         /* ================================ */
         /* Step 3: Export Complete           */
         /* ================================ */
@@ -957,9 +1031,25 @@
 
             <div class="export-bar">
                 <span class="selected-count"><strong id="selectedCount">0</strong> conversations selected</span>
-                <button class="export-btn" id="exportBtn" disabled onclick="doExport()">
-                    Export selected
-                </button>
+            </div>
+
+            <div class="send-panel">
+                <div class="send-label">Enter the code from your Rematch app</div>
+                <div class="send-row">
+                    <input type="text" id="pairCode" class="code-input" maxlength="6"
+                           autocapitalize="characters" autocomplete="off" spellcheck="false"
+                           placeholder="ABC123" oninput="onCodeInput()">
+                    <button class="export-btn" id="sendBtn" disabled onclick="doSendToPhone()">
+                        Send to phone
+                    </button>
+                </div>
+                <div class="send-or">
+                    Prefer a file?
+                    <button type="button" class="link-btn" id="exportBtn" disabled onclick="doExport()">
+                        Download instead
+                    </button>
+                </div>
+                <div class="send-error" id="sendError"></div>
             </div>
         </div>
 
@@ -969,11 +1059,11 @@
         <div class="done-section" id="doneSection">
             <div class="done-card">
                 <div class="done-check">&#10003;</div>
-                <h2>Export complete</h2>
-                <p>Your conversations have been saved.</p>
+                <h2 id="doneTitle">Export complete</h2>
+                <p id="doneMsg">Your conversations have been saved.</p>
                 <div class="filename" id="exportFilename"></div>
 
-                <div class="next-step">
+                <div class="next-step" id="doneNextStep">
                     <strong>Head back to Rematch</strong> and upload this file on the iMessage upload page. You can close this app once you've uploaded.
                 </div>
 
@@ -1221,6 +1311,7 @@
 
             document.getElementById('selectedCount').textContent = checked.length;
             document.getElementById('exportBtn').disabled = checked.length === 0;
+            refreshSendBtn();
 
             const list = document.getElementById('selectionList');
             const empty = document.getElementById('selectionEmpty');
@@ -1246,6 +1337,74 @@
         }
 
         // ================================
+        // Send to phone (pairing handoff)
+        // ================================
+        function refreshSendBtn() {
+            const checked = document.querySelectorAll('.chatbox:checked').length;
+            const code = document.getElementById('pairCode').value.trim();
+            document.getElementById('sendBtn').disabled = checked === 0 || code.length !== 6;
+        }
+
+        function onCodeInput() {
+            const input = document.getElementById('pairCode');
+            input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            refreshSendBtn();
+        }
+
+        async function doSendToPhone() {
+            const checked = Array.from(document.querySelectorAll('.chatbox:checked'));
+            const chatIds = checked.map(b => parseInt(b.value));
+            const code = document.getElementById('pairCode').value.trim().toUpperCase();
+            if (chatIds.length === 0 || code.length !== 6) return;
+
+            const btn = document.getElementById('sendBtn');
+            const errEl = document.getElementById('sendError');
+            errEl.textContent = '';
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+
+            try {
+                const res = await fetch('/send-to-phone', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_ids: chatIds, code })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    setDonePhone(data.conversationCount, chatIds.length);
+                    showStep(3);
+                } else {
+                    errEl.textContent = data.error || 'Something went wrong. Try again.';
+                }
+            } catch (e) {
+                errEl.textContent = "Couldn't reach Rematch. Check your connection and try again.";
+            }
+
+            btn.textContent = 'Send to phone';
+            refreshSendBtn();
+        }
+
+        function setDoneFile(filename) {
+            document.getElementById('doneTitle').textContent = 'Export complete';
+            document.getElementById('doneMsg').textContent = 'Your conversations have been saved.';
+            const fn = document.getElementById('exportFilename');
+            fn.textContent = filename;
+            fn.style.display = '';
+            document.getElementById('doneNextStep').innerHTML =
+                "<strong>Head back to Rematch</strong> and upload this file on the iMessage upload page. You can close this app once you've uploaded.";
+        }
+
+        function setDonePhone(count, fallbackCount) {
+            const n = count || fallbackCount;
+            document.getElementById('doneTitle').textContent = 'Sent to your phone';
+            document.getElementById('doneMsg').textContent =
+                n + (n === 1 ? ' conversation is on its way.' : ' conversations are on their way.');
+            document.getElementById('exportFilename').style.display = 'none';
+            document.getElementById('doneNextStep').innerHTML =
+                "<strong>Open the Rematch app on your phone</strong> to pick which conversations to include and finish up. You can close this app.";
+        }
+
+        // ================================
         // Export
         // ================================
         async function doExport() {
@@ -1256,7 +1415,7 @@
 
             const btn = document.getElementById('exportBtn');
             btn.disabled = true;
-            btn.textContent = 'Exporting...';
+            btn.textContent = 'Downloading...';
 
             try {
                 const res = await fetch('/export', {
@@ -1284,21 +1443,21 @@
                 URL.revokeObjectURL(url);
 
                 // Show done step
-                document.getElementById('exportFilename').textContent = filename;
+                setDoneFile(filename);
                 showStep(3);
             } catch (e) {
                 console.error('Export error:', e);
                 btn.disabled = false;
-                btn.textContent = 'Export selected';
+                btn.textContent = 'Download instead';
                 alert('Export failed. Please try again.');
             }
         }
 
         function backToSelect() {
             showStep(2);
-            // Reset export button
-            document.getElementById('exportBtn').textContent = 'Export selected';
-            document.getElementById('exportBtn').disabled = document.querySelectorAll('.chatbox:checked').length === 0;
+            document.getElementById('exportBtn').textContent = 'Download instead';
+            document.getElementById('sendBtn').textContent = 'Send to phone';
+            updateUI();
         }
 
         // ================================

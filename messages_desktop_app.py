@@ -13,6 +13,8 @@ from datetime import datetime
 import sys
 import subprocess
 import signal
+import urllib.request
+import urllib.error
 
 from flask import Flask, render_template, request, jsonify, send_file
 import messages
@@ -21,6 +23,9 @@ DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
 VERY_LARGE_LIMIT = 10_000_000
 PORT = 5050
 APP_NAME = 'RematchExport'
+
+# Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
+INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
 
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and for packaged app."""
@@ -120,11 +125,9 @@ def api_conversations():
     return jsonify({"individual": individual, "groups": groups})
 
 
-@app.route("/export", methods=["POST"])
-def export():
-    data = request.get_json()
-    selected_ids = data.get("chat_ids", [])
-
+def build_export_data(selected_ids):
+    """Build the flat {chat, date, from_me, text} array for the selected chats.
+    Shared by the file download (/export) and the phone handoff (/send-to-phone)."""
     db = messages.get_db()
     export_data = []
 
@@ -141,6 +144,14 @@ def export():
                 "text": msg.text
             })
 
+    return export_data
+
+
+@app.route("/export", methods=["POST"])
+def export():
+    data = request.get_json()
+    export_data = build_export_data(data.get("chat_ids", []))
+
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
 
     with open(temp.name, "w", encoding="utf-8") as f:
@@ -152,6 +163,43 @@ def export():
         as_attachment=True,
         download_name=f"Rematch Export - {today}.json"
     )
+
+
+@app.route("/send-to-phone", methods=["POST"])
+def send_to_phone():
+    """Send the selected conversations straight to the user's Rematch account via
+    the 6-char pairing code shown in the phone app — no file handling. The code
+    authorizes depositing one export; the phone then claims it."""
+    data = request.get_json()
+    code = (data.get("code") or "").strip().upper()
+    if not code:
+        return jsonify({"ok": False, "error": "Enter the code from your Rematch app."}), 400
+
+    export_data = build_export_data(data.get("chat_ids", []))
+    if not export_data:
+        return jsonify({"ok": False, "error": "No messages found in the selected conversations."}), 400
+
+    body = json.dumps({"code": code, "payload": export_data}).encode("utf-8")
+    req = urllib.request.Request(
+        INGEST_URL,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return jsonify({"ok": True, "conversationCount": result.get("conversationCount")})
+    except urllib.error.HTTPError as e:
+        # The ingest endpoint returns a friendly message (bad/expired code, etc.).
+        try:
+            err = json.loads(e.read().decode("utf-8")).get("error")
+        except Exception:
+            err = None
+        return jsonify({"ok": False, "error": err or "That code isn't valid. Grab a fresh one in the Rematch app."})
+    except Exception:
+        return jsonify({"ok": False, "error": "Couldn't reach Rematch. Check your connection and try again."})
 
 
 # -------------------------
