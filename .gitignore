@@ -2,6 +2,7 @@
 build/
 dist/
 __pycache__/
-*.spec
 *.app/
 JayApp0.app/
+# NOTE: RematchExport.spec is intentionally TRACKED (it is the build recipe).
+# Do not re-add "*.spec" here — that previously hid the build and made it a mystery.

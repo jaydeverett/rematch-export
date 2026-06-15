@@ -1,5 +1,11 @@
 '''
-pyinstaller --windowed --onefile --name "RematchExport" --add-data "templates:templates" messages_desktop_app.py
+Build the signed, notarizable .app from RematchExport.spec (NOT a one-liner):
+
+    ./build.sh            # clean -> PyInstaller (onedir .app, custom icon) -> codesign -> DMG
+
+The committed spec uses --onedir (a proper .app bundle), which launches far faster
+on repeat opens than --onefile (which unpacks to a temp dir every launch). Notarize
++ staple steps print at the end of build.sh. See build.sh / RematchExport.spec.
 '''
 
 import os
@@ -224,7 +230,10 @@ def launch_browser():
     webbrowser.open(f"http://127.0.0.1:{PORT}")
 
 if __name__ == "__main__":
-    kill_port('127.0.0.1', PORT)
-    time.sleep(2.0)
-    threading.Timer(1.0, launch_browser).start()
+    # Only pause if we actually had to kill a stale instance — a fresh launch
+    # (the common case for a just-downloaded app) needn't wait at all. This drops
+    # ~3s of dead time off cold start (was: unconditional 2.0s sleep + 1.0s timer).
+    if kill_port('127.0.0.1', PORT):
+        time.sleep(0.4)  # let the SIGKILL'd socket release before we rebind
+    threading.Timer(0.4, launch_browser).start()
     app.run(port=PORT, debug=False)
