@@ -60,6 +60,6 @@ echo "  xcrun stapler staple \"$DMG\""
 echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
-echo "  # Re-upload the public release asset (replaces the old DMG testers download):"
-echo "  gh release upload v1.5.0 \"$DMG\" --repo jaydeverett/rematch-export --clobber"
+echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
+echo "  gh release create v1.5.1 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.1 --notes \"Contact names restored, light mode, tab selector contrast\" --latest"
 echo "================================================================"

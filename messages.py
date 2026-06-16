@@ -20,6 +20,8 @@ Notes on fidelity:
 """
 
 import os
+import re
+import glob
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -27,6 +29,12 @@ DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
 
 # Mac absolute time epoch.
 _APPLE_EPOCH = datetime(2001, 1, 1)
+
+# macOS Contacts (AddressBook) — one sqlite db per account source. DM chats are
+# keyed by raw handle (phone/email); the person's name lives here.
+_ABOOK_GLOB = os.path.expanduser(
+    "~/Library/Application Support/AddressBook/**/AddressBook-v22.abcddb"
+)
 
 
 # -------------------------
@@ -95,6 +103,87 @@ def _decode_attributed_body(blob):
 
 
 # -------------------------
+# Contacts (AddressBook) — resolve a phone/email handle to a person's name
+# -------------------------
+
+def _norm_phone(raw):
+    """Reduce a phone string to comparable digits (last 10, to ignore +country)."""
+    digits = re.sub(r"\D", "", raw or "")
+    if not digits:
+        return None
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+class Contacts:
+    """Read-only handle -> name index built from the macOS Contacts DBs.
+
+    Requires Full Disk Access (already needed for chat.db). Any locked or
+    schema-variant source is skipped rather than allowed to break an export.
+    """
+
+    def __init__(self):
+        self._by_phone = {}
+        self._by_email = {}
+        for path in glob.glob(_ABOOK_GLOB, recursive=True):
+            try:
+                con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                con.row_factory = sqlite3.Row
+                try:
+                    self._index(con)
+                finally:
+                    con.close()
+            except Exception:
+                continue
+
+    @staticmethod
+    def _name(row):
+        full = ((row["ZFIRSTNAME"] or "").strip() + " "
+                + (row["ZLASTNAME"] or "").strip()).strip()
+        return (full
+                or (row["ZORGANIZATION"] or "").strip()
+                or (row["ZNICKNAME"] or "").strip()
+                or None)
+
+    def _index(self, con):
+        for row in con.execute(
+            "SELECT p.ZFULLNUMBER AS v, r.ZFIRSTNAME, r.ZLASTNAME, "
+            "       r.ZORGANIZATION, r.ZNICKNAME "
+            "FROM ZABCDPHONENUMBER p JOIN ZABCDRECORD r ON r.Z_PK = p.ZOWNER"
+        ):
+            key, name = _norm_phone(row["v"]), self._name(row)
+            if key and name:
+                self._by_phone.setdefault(key, name)
+        for row in con.execute(
+            "SELECT e.ZADDRESS AS v, r.ZFIRSTNAME, r.ZLASTNAME, "
+            "       r.ZORGANIZATION, r.ZNICKNAME "
+            "FROM ZABCDEMAILADDRESS e JOIN ZABCDRECORD r ON r.Z_PK = e.ZOWNER"
+        ):
+            addr, name = (row["v"] or "").strip().lower(), self._name(row)
+            if addr and name:
+                self._by_email.setdefault(addr, name)
+
+    def name(self, handle):
+        if not handle:
+            return None
+        h = handle.strip()
+        if "@" in h:
+            return self._by_email.get(h.lower())
+        key = _norm_phone(h)
+        return self._by_phone.get(key) if key else None
+
+
+_CONTACTS = None
+
+
+def _get_contacts():
+    """Load the Contacts index once per process."""
+    global _CONTACTS
+    if _CONTACTS is None:
+        _CONTACTS = Contacts()
+    return _CONTACTS
+
+
+# -------------------------
 # Database
 # -------------------------
 
@@ -128,6 +217,19 @@ class DB:
         ).fetchall()
         participants = [h["handle"] for h in handles]
         return Chat(r["ROWID"], r["display_name"], r["chat_identifier"], participants)
+
+    def name_for(self, chat):
+        """Friendly label: the chat's given name, else the resolved contact
+        name(s), else the raw handle/identifier."""
+        if chat.display_name:
+            return chat.display_name
+        contacts = _get_contacts()
+        direct = contacts.name(chat.identifier)
+        if direct:
+            return direct
+        if chat.participants:
+            return ", ".join(contacts.name(p) or p for p in chat.participants)
+        return chat.identifier
 
     def messages(self, chat_id, limit=10_000_000):
         """All messages in a chat, oldest first, with attributedBody fallback."""

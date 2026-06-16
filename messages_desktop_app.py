@@ -86,10 +86,9 @@ def get_chat_summaries():
         earliest = min(dates).strftime("%Y-%m-%d")
         latest = max(dates).strftime("%Y-%m-%d")
 
-        chat_name = chat_summary.display_name or chat_summary.identifier
-
         full_chat = db.chat(chat_summary.id)
         is_group = len(full_chat.participants) > 1
+        chat_name = db.name_for(full_chat)
 
         summaries.append({
             "id": chat_summary.id,
@@ -140,7 +139,7 @@ def build_export_data(selected_ids):
     for chat_id in selected_ids:
         chat_id = int(chat_id)
         chat = db.chat(chat_id)
-        chat_name = chat.display_name or chat.identifier
+        chat_name = db.name_for(chat)
 
         for msg in db.messages(chat_id=chat_id, limit=VERY_LARGE_LIMIT):
             export_data.append({
