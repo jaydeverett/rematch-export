@@ -129,12 +129,31 @@ def get_chat_summaries():
 # Flask Routes
 # -------------------------
 
+def app_bundle_container() -> str:
+    """The folder that holds RematchExport.app — shown in the Full Disk Access
+    steps so the user can point the "+" file picker straight at it. Leading with
+    "+" (instead of waiting for macOS to auto-list the app) makes granting access
+    deterministic and instant regardless of TCC's auto-populate timing. Empty when
+    running unfrozen (dev)."""
+    if not getattr(sys, "frozen", False):
+        return ""
+    # sys.executable: .../RematchExport.app/Contents/MacOS/RematchExport
+    exe = os.path.realpath(sys.executable)
+    bundle = os.path.dirname(os.path.dirname(os.path.dirname(exe)))  # RematchExport.app
+    return os.path.dirname(bundle)
+
+
 @app.route("/")
 def index():
     has_access = has_full_disk_access()
     if not has_access:
         open_full_disk_access_settings()
-    return render_template('app.html', app_name=APP_NAME, has_access=has_access)
+    return render_template(
+        "app.html",
+        app_name=APP_NAME,
+        has_access=has_access,
+        app_dir=app_bundle_container(),
+    )
 
 
 @app.route("/check-access")

@@ -936,15 +936,17 @@
                     <div class="fda-step">
                         <div class="fda-step-num">1</div>
                         <div class="fda-step-text">
-                            Find <strong>"RematchExport"</strong> in the list
-                            <div class="fda-hint">If it's not listed, click the <strong>+</strong> button and add it from your Downloads folder.</div>
+                            In that window, click the <strong>+</strong> button (under the list)
+                            <div class="fda-hint">If it's locked, click the padlock and unlock with your password or Touch ID first.</div>
                         </div>
                     </div>
                     <div class="fda-step">
                         <div class="fda-step-num">2</div>
                         <div class="fda-step-text">
-                            <strong>Flip the switch on</strong>
-                            <div class="fda-hint">You may need your password or Touch ID to confirm.</div>
+                            Choose <strong>RematchExport</strong>{% if app_dir %} &mdash; it's in <code style="font-family: 'DM Mono', monospace; font-size: 0.88em; word-break: break-all;">{{ app_dir }}</code>{% endif %}
+                            <div class="fda-hint">
+                                {% if '/Volumes/' in app_dir %}Tip: drag RematchExport into your Applications folder first and add it from there, so the permission still works after you eject the installer.{% else %}That adds it to the list already switched on. (If it's already listed, just flip its switch on instead.){% endif %}
+                            </div>
                         </div>
                     </div>
                     <div class="fda-step">

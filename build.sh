@@ -90,5 +90,5 @@ echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
 echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
-echo "  gh release create v1.5.5 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.5 --notes \"Rounded macOS app icon + browser-tab favicon; reverse-DNS bundle id; predictable solid drag-install window\" --latest"
+echo "  gh release create v1.5.6 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.6 --notes \"FDA step leads with the + button + exact app location — no waiting on macOS to auto-list the app\" --latest"
 echo "================================================================"
