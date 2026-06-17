@@ -43,6 +43,24 @@ def resource_path(relative_path):
 
 app = Flask(__name__, template_folder=resource_path('templates'))
 
+
+@app.after_request
+def no_cache(resp):
+    """Disable HTTP caching on every response.
+
+    This is a localhost tool served from a long-lived URL (127.0.0.1:5050) that the
+    browser reuses across app versions and launches. A cached app.html means the
+    CURRENT page's JS never runs (the browser replays an old page); a cached
+    /check-access masks a just-granted permission. Both are what left the FDA
+    "Waiting for permission" page spinning until a manual refresh. Nothing here
+    benefits from caching, so turn it off everywhere.
+    """
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 # -------------------------
 # Permission Handling
 # -------------------------
@@ -121,15 +139,9 @@ def index():
 
 @app.route("/check-access")
 def check_access():
-    # No-store is essential: this is polled while the user grants Full Disk
-    # Access. Without it the browser's HTTP cache can replay the first
-    # {granted: false} response indefinitely, so the waiting page spins forever
-    # even after access is granted (the bug a manual refresh "fixed").
-    resp = jsonify({"granted": has_full_disk_access()})
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
+    # Polled while the user grants Full Disk Access; no-cache is handled globally
+    # by the after_request hook so a stale {granted: false} can't be replayed.
+    return jsonify({"granted": has_full_disk_access()})
 
 
 @app.route("/api/conversations")
@@ -234,7 +246,13 @@ def kill_port(host: str, port: int) -> bool:
     return killed
 
 def launch_browser():
-    webbrowser.open(f"http://127.0.0.1:{PORT}")
+    # Cache-bust the URL with a per-launch token. The bare 127.0.0.1:PORT/ may
+    # already hold a stale app.html in the browser cache from a PRIOR version of
+    # this app (older builds sent no cache headers) — and the browser can replay it
+    # without revalidating, which is what left the FDA waiting page spinning. A
+    # never-before-seen URL forces a real fetch; no_cache() keeps it fresh after.
+    token = os.urandom(4).hex()
+    webbrowser.open(f"http://127.0.0.1:{PORT}/?v={token}")
 
 if __name__ == "__main__":
     # Only pause if we actually had to kill a stale instance — a fresh launch
