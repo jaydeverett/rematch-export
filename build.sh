@@ -4,8 +4,9 @@
 #
 # Prereqs (one-time, on a machine with network):
 #   python3.13 -m venv .venv && source .venv/bin/activate
-#   pip install pyinstaller flask Pillow ds-store mac-alias
-#   (Pillow/ds-store/mac-alias drive dmg_layout.py — the drag-to-install window.)
+#   pip install pyinstaller flask ds-store
+#   (ds-store drives dmg_layout.py — the drag-to-install window. Regenerating the
+#    rounded app icon via make_icon.py additionally needs Pillow.)
 #
 # Then:   ./build.sh
 #
@@ -61,7 +62,7 @@ ln -s /Applications "$STAGE/Applications"
 # so the DMG opens to the classic "drag the app onto Applications" layout. Done
 # by writing the layout files INTO the staging folder (no mount), which dodges
 # the /Volumes TCC block that defeats create-dmg/appdmg/Finder here.
-python dmg_layout.py "$STAGE" RematchExport
+python dmg_layout.py "$STAGE"
 hdiutil detach -force /Volumes/RematchExport >/dev/null 2>&1 || true   # free a stale mount if any
 hdiutil makehybrid -o "$TMP_DMG" "$STAGE" -hfs -hfs-volume-name "RematchExport" -ov
 hdiutil convert "$TMP_DMG" -format UDZO -o "$DMG" -ov
@@ -89,5 +90,5 @@ echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
 echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
-echo "  gh release create v1.5.4 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.4 --notes \"Classic drag-to-install DMG window (background arrow + positioned icons)\" --latest"
+echo "  gh release create v1.5.5 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.5 --notes \"Rounded macOS app icon + browser-tab favicon; reverse-DNS bundle id; predictable solid drag-install window\" --latest"
 echo "================================================================"
