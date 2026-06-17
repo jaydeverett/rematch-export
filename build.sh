@@ -36,17 +36,28 @@ codesign --force --options runtime --timestamp \
 echo "==> Verify signature"
 codesign --verify --strict --verbose=2 "$APP"
 
-echo "==> Build DMG (makehybrid + convert)"
+echo "==> Build DMG (stage -> makehybrid -> convert)"
 # NOT `hdiutil create -srcfolder`: that mounts a temp r/w volume under /Volumes to
 # copy the app, which macOS TCC blocks for the host process ("Operation not
 # permitted" — and disabling any sandbox does NOT help, it's host TCC). makehybrid
 # reads the source folder directly with no /Volumes mount, then we convert to UDZO.
+#
+# CRITICAL: makehybrid puts the *contents* of its source at the volume root. Point
+# it at RematchExport.app and the bundle gets UNWRAPPED — the DMG then contains a
+# bare `Contents/` folder, not a launchable app (shipped broken in the first v1.5.1
+# repackage). So stage the .app INSIDE a folder and hand makehybrid the folder, so
+# RematchExport.app lands at the volume root. Use ditto to preserve the signature.
 TMP_DMG="${DMG%.dmg}_tmp.dmg"
+STAGE="dist/dmg_stage"
 rm -f "$DMG" "$TMP_DMG"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+ditto "$APP" "$STAGE/RematchExport.app"
 hdiutil detach -force /Volumes/RematchExport >/dev/null 2>&1 || true   # free a stale mount if any
-hdiutil makehybrid -o "$TMP_DMG" "$APP" -hfs -hfs-volume-name "RematchExport" -ov
+hdiutil makehybrid -o "$TMP_DMG" "$STAGE" -hfs -hfs-volume-name "RematchExport" -ov
 hdiutil convert "$TMP_DMG" -format UDZO -o "$DMG" -ov
 rm -f "$TMP_DMG"
+rm -rf "$STAGE"
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 
 echo
