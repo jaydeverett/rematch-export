@@ -4,7 +4,8 @@
 #
 # Prereqs (one-time, on a machine with network):
 #   python3.13 -m venv .venv && source .venv/bin/activate
-#   pip install pyinstaller flask
+#   pip install pyinstaller flask Pillow ds-store mac-alias
+#   (Pillow/ds-store/mac-alias drive dmg_layout.py — the drag-to-install window.)
 #
 # Then:   ./build.sh
 #
@@ -53,11 +54,14 @@ rm -f "$DMG" "$TMP_DMG"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/RematchExport.app"
-# Drag-to-install: an /Applications alias next to the app, the standard Mac
-# convention so users park it in Applications (easy to find later) instead of
-# running it from Downloads. The prettier background-with-arrow needs Finder
-# scripting we can't do headless; the alias is the functional core.
+# Drag-to-install: an /Applications alias next to the app so users park it in
+# Applications (easy to find later) instead of running it from Downloads.
 ln -s /Applications "$STAGE/Applications"
+# Style the install window — background art (arrow), icon positions, .DS_Store —
+# so the DMG opens to the classic "drag the app onto Applications" layout. Done
+# by writing the layout files INTO the staging folder (no mount), which dodges
+# the /Volumes TCC block that defeats create-dmg/appdmg/Finder here.
+python dmg_layout.py "$STAGE" RematchExport
 hdiutil detach -force /Volumes/RematchExport >/dev/null 2>&1 || true   # free a stale mount if any
 hdiutil makehybrid -o "$TMP_DMG" "$STAGE" -hfs -hfs-volume-name "RematchExport" -ov
 hdiutil convert "$TMP_DMG" -format UDZO -o "$DMG" -ov
@@ -85,5 +89,5 @@ echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
 echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
-echo "  gh release create v1.5.3 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.3 --notes \"FDA waiting page auto-advances via meta-refresh; Applications drag-install alias; selected-for-export moved above the code bar\" --latest"
+echo "  gh release create v1.5.4 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.4 --notes \"Classic drag-to-install DMG window (background arrow + positioned icons)\" --latest"
 echo "================================================================"
