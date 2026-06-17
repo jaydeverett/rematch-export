@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rematch Export</title>
+    {% if not has_access %}
+    <!-- Brute-force, JS-independent auto-advance for the Full Disk Access wait.
+         A native full-page reload every 2s re-asks the server whether access has
+         been granted; the instant it has, the server renders the next step (no
+         meta tag there) and the reloading stops. This is the reliable mechanism —
+         the in-page fetch poll proved flaky across browsers/caches. -->
+    <meta http-equiv="refresh" content="2">
+    {% endif %}
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -997,13 +1005,6 @@
                 </div>
             </div>
 
-            <div class="selection-panel" id="selectionPanel">
-                <div class="selection-header">Selected for export</div>
-                <div class="selection-list" id="selectionList">
-                    <span class="selection-empty" id="selectionEmpty">No conversations selected yet</span>
-                </div>
-            </div>
-
             <div class="toolbar">
                 <span class="tab-hint" id="tabHint">These are your highest-signal conversations.</span>
                 <button class="toggle-btn" onclick="toggleAll()">Select all</button>
@@ -1031,6 +1032,15 @@
 
             <div class="export-bar">
                 <span class="selected-count"><strong id="selectedCount">0</strong> conversations selected</span>
+            </div>
+
+            <!-- Selected-for-export sits right above the code bar so the flow reads
+                 pick from the list -> here's what you chose -> enter code -> send. -->
+            <div class="selection-panel" id="selectionPanel">
+                <div class="selection-header">Selected for export</div>
+                <div class="selection-list" id="selectionList">
+                    <span class="selection-empty" id="selectionEmpty">No conversations selected yet</span>
+                </div>
             </div>
 
             <div class="send-panel">
@@ -1087,9 +1097,19 @@
         (function init() {
             if (currentStep === 2) {
                 // Already have access — skip FDA, load conversations
+                sessionStorage.removeItem('fdaWaitTicks');
                 showStep(2);
                 loadConversations();
             } else {
+                // The waiting page meta-refreshes every ~2s, which resets all JS
+                // state — so count elapsed waiting in sessionStorage (survives the
+                // reloads) and reveal the "quit & reopen" hint after ~8s, for the
+                // case where macOS needs an app restart to honor the grant.
+                const ticks = (parseInt(sessionStorage.getItem('fdaWaitTicks') || '0', 10) || 0) + 1;
+                sessionStorage.setItem('fdaWaitTicks', String(ticks));
+                if (ticks >= 4) {
+                    document.getElementById('fdaRetryHint').classList.add('visible');
+                }
                 showStep(1);
                 startAccessPolling();
             }

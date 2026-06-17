@@ -53,6 +53,11 @@ rm -f "$DMG" "$TMP_DMG"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/RematchExport.app"
+# Drag-to-install: an /Applications alias next to the app, the standard Mac
+# convention so users park it in Applications (easy to find later) instead of
+# running it from Downloads. The prettier background-with-arrow needs Finder
+# scripting we can't do headless; the alias is the functional core.
+ln -s /Applications "$STAGE/Applications"
 hdiutil detach -force /Volumes/RematchExport >/dev/null 2>&1 || true   # free a stale mount if any
 hdiutil makehybrid -o "$TMP_DMG" "$STAGE" -hfs -hfs-volume-name "RematchExport" -ov
 hdiutil convert "$TMP_DMG" -format UDZO -o "$DMG" -ov
@@ -80,5 +85,5 @@ echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
 echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
-echo "  gh release create v1.5.2 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.2 --notes \"FDA waiting page now reliably auto-advances (no-cache all responses + cache-busted launch URL)\" --latest"
+echo "  gh release create v1.5.3 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.3 --notes \"FDA waiting page auto-advances via meta-refresh; Applications drag-install alias; selected-for-export moved above the code bar\" --latest"
 echo "================================================================"
