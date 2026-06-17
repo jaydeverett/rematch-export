@@ -121,7 +121,15 @@ def index():
 
 @app.route("/check-access")
 def check_access():
-    return jsonify({"granted": has_full_disk_access()})
+    # No-store is essential: this is polled while the user grants Full Disk
+    # Access. Without it the browser's HTTP cache can replay the first
+    # {granted: false} response indefinitely, so the waiting page spins forever
+    # even after access is granted (the bug a manual refresh "fixed").
+    resp = jsonify({"granted": has_full_disk_access()})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route("/api/conversations")

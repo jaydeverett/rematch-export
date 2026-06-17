@@ -1129,7 +1129,7 @@
             pollInterval = setInterval(async () => {
                 pollCount++;
                 try {
-                    const res = await fetch('/check-access');
+                    const res = await fetch('/check-access', { cache: 'no-store' });
                     const data = await res.json();
                     if (data.granted) {
                         clearInterval(pollInterval);
@@ -1146,25 +1146,20 @@
             }, 2000);
         }
 
-        async function onAccessGranted() {
-            // Show transition
+        function onAccessGranted() {
+            // Show the "Access granted" beat, then hard-reload. Reloading lets the
+            // server re-render straight into step 2 with full access, which is more
+            // robust than an in-place transition against macOS's TCC quirks (the
+            // running process picks up the new grant on a fresh request).
             document.getElementById('fdaSection').style.display = 'none';
             const card = document.getElementById('transitionCard');
             card.classList.add('visible');
 
-            // Update step indicator to "between 1 and 2"
             document.getElementById('dot1').classList.remove('active');
             document.getElementById('dot1').classList.add('done');
             document.getElementById('line1').classList.add('done');
 
-            // Load conversations, then transition to step 2
-            await loadConversations();
-
-            // Brief pause for the "Access granted" moment to register
-            await new Promise(r => setTimeout(r, 1200));
-
-            card.classList.remove('visible');
-            showStep(2);
+            setTimeout(() => window.location.reload(), 700);
         }
 
         // ================================
