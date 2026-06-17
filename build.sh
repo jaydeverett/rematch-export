@@ -3,7 +3,11 @@
 # Build, sign, and package RematchExport into a notarizable DMG.
 #
 # Prereqs (one-time, on a machine with network):
-#   python3.13 -m venv .venv && source .venv/bin/activate
+#   # MUST be a UNIVERSAL2 Python (arm64 + x86_64) so the app runs on Intel Macs
+#   # too — the python.org macos universal2 installer, NOT Homebrew (arm64-only).
+#   /Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13 -m venv .venv
+#   source .venv/bin/activate
+#   pip install --no-binary markupsafe markupsafe   # its C _speedups builds fat from this Python
 #   pip install pyinstaller flask ds-store
 #   (ds-store drives dmg_layout.py — the drag-to-install window. Regenerating the
 #    rounded app icon via make_icon.py additionally needs Pillow.)
@@ -90,5 +94,5 @@ echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
 echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
-echo "  gh release create v1.5.6 \"$DMG\" --repo jaydeverett/rematch-export --title v1.5.6 --notes \"FDA step leads with the + button + exact app location — no waiting on macOS to auto-list the app\" --latest"
+echo "  gh release create v1.6.0 \"$DMG\" --repo jaydeverett/rematch-export --title v1.6.0 --notes \"Universal2 build — now runs on Intel Macs as well as Apple Silicon\" --latest"
 echo "================================================================"

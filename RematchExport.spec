@@ -38,7 +38,9 @@ exe = EXE(
     console=False,                # --windowed: no terminal window
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch='universal2',     # arm64 + x86_64 -> runs on Apple Silicon AND Intel.
+                                  # REQUIRES a universal2 Python (python.org installer,
+                                  # NOT Homebrew arm64) — see build.sh header.
     codesign_identity=None,       # signed explicitly (post-build) in build.sh
     entitlements_file=None,
 )
@@ -59,8 +61,8 @@ app = BUNDLE(
     icon='RematchExport.icns',
     bundle_identifier='com.rematch.export',
     info_plist={
-        'CFBundleShortVersionString': '1.5.6',
-        'CFBundleVersion': '1.5.6',
+        'CFBundleShortVersionString': '1.6.0',
+        'CFBundleVersion': '1.6.0',
         'NSHighResolutionCapable': True,
         'LSApplicationCategoryType': 'public.app-category.utilities',
     },
