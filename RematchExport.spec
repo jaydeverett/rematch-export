@@ -15,7 +15,10 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('templates', 'templates')],
-    hiddenimports=[],
+    # certifi: bundle its CA roots (cacert.pem) so HTTPS works in the packaged app.
+    # PyInstaller's certifi hook collects the data file once certifi is imported;
+    # naming it here makes the dependency explicit and analysis-proof.
+    hiddenimports=['certifi'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -61,8 +64,8 @@ app = BUNDLE(
     icon='RematchExport.icns',
     bundle_identifier='com.rematch.export',
     info_plist={
-        'CFBundleShortVersionString': '1.6.0',
-        'CFBundleVersion': '1.6.0',
+        'CFBundleShortVersionString': '1.6.1',
+        'CFBundleVersion': '1.6.1',
         'NSHighResolutionCapable': True,
         'LSApplicationCategoryType': 'public.app-category.utilities',
     },

@@ -21,6 +21,8 @@ import subprocess
 import signal
 import urllib.request
 import urllib.error
+import ssl
+import certifi
 
 from flask import Flask, render_template, request, jsonify, send_file
 import messages
@@ -32,6 +34,16 @@ APP_NAME = 'RematchExport'
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
+
+# Trust roots for the HTTPS call above. A PyInstaller-bundled Python ships its own
+# OpenSSL but NO CA certificate bundle, so a bare urlopen() fails verification with
+# SSL: CERTIFICATE_VERIFY_FAILED — which surfaced to users as "Couldn't reach
+# Rematch" on every send-to-phone from the packaged .app. certifi (bundled into the
+# build, see RematchExport.spec) provides the roots so HTTPS works in the bundle.
+try:
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except Exception:
+    SSL_CONTEXT = ssl.create_default_context()
 
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and for packaged app."""
@@ -232,7 +244,7 @@ def send_to_phone():
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=120, context=SSL_CONTEXT) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             return jsonify({"ok": True, "conversationCount": result.get("conversationCount")})
     except urllib.error.HTTPError as e:
