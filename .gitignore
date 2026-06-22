@@ -2,6 +2,7 @@
 build/
 dist/
 __pycache__/
+.DS_Store
 *.app/
 JayApp0.app/
 # NOTE: RematchExport.spec is intentionally TRACKED (it is the build recipe).
