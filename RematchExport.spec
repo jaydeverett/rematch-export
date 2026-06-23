@@ -64,8 +64,8 @@ app = BUNDLE(
     icon='RematchExport.icns',
     bundle_identifier='com.rematch.export',
     info_plist={
-        'CFBundleShortVersionString': '1.6.1',
-        'CFBundleVersion': '1.6.1',
+        'CFBundleShortVersionString': '1.6.2',
+        'CFBundleVersion': '1.6.2',
         'NSHighResolutionCapable': True,
         'LSApplicationCategoryType': 'public.app-category.utilities',
     },

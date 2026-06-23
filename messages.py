@@ -56,6 +56,30 @@ class Message:
         self.text = text              # str | None
 
 
+class LogicalChat:
+    """One logical conversation, possibly spanning several chat.db `chat` rows.
+
+    iMessage starts a NEW chat row (new ROWID/guid/chat_identifier) whenever a group
+    is renamed OR a participant's handle changes — e.g. a member switches from a
+    phone number to an iCloud email. The raw `chat` table therefore fragments a
+    years-long group into several rows, each with only a slice of the messages (the
+    "291 messages on a chat that's run for years" symptom). We coalesce those rows
+    so the user sees and exports the whole conversation.
+
+    `id` is the smallest constituent ROWID — a stable integer that round-trips
+    unchanged through the frontend's `parseInt` and re-expands to `member_ids` on
+    export, so no client change is needed.
+    """
+
+    def __init__(self, member_ids, display_name, identifier, participants, is_group):
+        self.member_ids = sorted(member_ids)
+        self.id = self.member_ids[0]
+        self.display_name = display_name
+        self.identifier = identifier
+        self.participants = participants
+        self.is_group = is_group
+
+
 # -------------------------
 # Helpers
 # -------------------------
@@ -183,6 +207,26 @@ def _get_contacts():
     return _CONTACTS
 
 
+def _participant_key(handle):
+    """A stable identity for a participant, used to decide whether two chat rows are
+    the same logical conversation. Resolve the handle to a contact NAME when possible
+    so the same person under a phone number AND an iCloud email collapses to one
+    identity (exactly why iMessage spawns a second chat row for a "renamed" group);
+    otherwise fall back to a normalized phone / lowercased email / raw handle."""
+    name = _get_contacts().name(handle)
+    if name:
+        return "name:" + name.strip().lower()
+    h = (handle or "").strip()
+    if not h:
+        return "raw:"
+    if "@" in h:
+        return "email:" + h.lower()
+    digits = re.sub(r"\D", "", h)
+    if digits:
+        return "phone:" + (digits[-10:] if len(digits) >= 10 else digits)
+    return "raw:" + h.lower()
+
+
 # -------------------------
 # Database
 # -------------------------
@@ -250,6 +294,140 @@ class DB:
                 text = _decode_attributed_body(r["attributed_body"])
             out.append(Message(_apple_time_to_dt(r["date"]), r["is_from_me"], text))
         return out
+
+    def logical_chats(self):
+        """All conversations, with fragmented `chat` rows coalesced (see LogicalChat).
+
+        Two chat rows are the same logical conversation when:
+          - DM (one participant): they resolve to the same single person.
+          - Group: they share the same custom display name (and ≥1 member), OR their
+            participant rosters are near-identical (≥3 people, differing by ≤1 — which
+            catches one member's phone→email handle switch). A DM never merges with a
+            group.
+        """
+        rows = self.con.execute(
+            "SELECT ROWID, display_name, chat_identifier FROM chat"
+        ).fetchall()
+
+        meta = {}
+        for r in rows:
+            rid = r["ROWID"]
+            handles = [h["handle"] for h in self.con.execute(
+                "SELECT h.id AS handle FROM chat_handle_join chj "
+                "JOIN handle h ON h.ROWID = chj.handle_id WHERE chj.chat_id = ?",
+                (rid,),
+            ).fetchall()]
+            keys = frozenset(_participant_key(h) for h in handles)
+            meta[rid] = {
+                "row": r,
+                "handles": handles,
+                "keys": keys,
+                "name": (r["display_name"] or "").strip().lower() or None,
+                "is_group": len(keys) >= 2,
+            }
+
+        ids = list(meta.keys())
+
+        # Union-find over chat rows.
+        parent = {i: i for i in ids}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        def same_conversation(a, b):
+            ma, mb = meta[a], meta[b]
+            if ma["is_group"] != mb["is_group"]:
+                return False  # never merge a DM with a group
+            inter = ma["keys"] & mb["keys"]
+            if not ma["is_group"]:
+                return ma["keys"] == mb["keys"]  # DM: identical single participant
+            if ma["name"] and ma["name"] == mb["name"] and inter:
+                return True  # same custom group name, sharing ≥1 member
+            if (min(len(ma["keys"]), len(mb["keys"])) >= 3
+                    and len(inter) >= max(len(ma["keys"]), len(mb["keys"])) - 1):
+                return True  # near-identical roster (handle swap)
+            return False
+
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                if same_conversation(ids[i], ids[j]):
+                    union(ids[i], ids[j])
+
+        comps = {}
+        for i in ids:
+            comps.setdefault(find(i), []).append(i)
+
+        out = []
+        for members in comps.values():
+            members = sorted(members)
+            display = None
+            for m in members:
+                dn = meta[m]["row"]["display_name"]
+                if dn and dn.strip():
+                    display = dn.strip()
+                    break
+            identifier = meta[members[0]]["row"]["chat_identifier"]
+            # Union participant handles, de-duped by resolved identity so one
+            # person's two handles don't both appear.
+            seen, participants = set(), []
+            for m in members:
+                for h in meta[m]["handles"]:
+                    k = _participant_key(h)
+                    if k not in seen:
+                        seen.add(k)
+                        participants.append(h)
+            is_group = any(meta[m]["is_group"] for m in members)
+            out.append(LogicalChat(members, display, identifier, participants, is_group))
+        return out
+
+    def messages_union(self, member_ids, limit=10_000_000):
+        """All messages across the given chat rows, oldest first, with attributedBody
+        fallback, de-duped by message ROWID (a message can in principle be joined to
+        more than one of the merged rows)."""
+        if not member_ids:
+            return []
+        placeholders = ",".join("?" for _ in member_ids)
+        rows = self.con.execute(
+            "SELECT m.ROWID AS rid, m.date AS date, m.is_from_me AS is_from_me, "
+            "       m.text AS text, m.attributedBody AS attributed_body "
+            "FROM message m "
+            "JOIN chat_message_join cmj ON cmj.message_id = m.ROWID "
+            f"WHERE cmj.chat_id IN ({placeholders}) "
+            "ORDER BY m.date ASC "
+            "LIMIT ?",
+            (*[int(i) for i in member_ids], limit),
+        ).fetchall()
+        out, seen = [], set()
+        for r in rows:
+            if r["rid"] in seen:
+                continue
+            seen.add(r["rid"])
+            text = r["text"]
+            if not text and r["attributed_body"] is not None:
+                text = _decode_attributed_body(r["attributed_body"])
+            out.append(Message(_apple_time_to_dt(r["date"]), r["is_from_me"], text))
+        return out
+
+    def logical_name(self, lc):
+        """Friendly label for a logical conversation: its given name, else the
+        resolved contact name(s), else the raw identifier."""
+        if lc.display_name:
+            return lc.display_name
+        contacts = _get_contacts()
+        direct = contacts.name(lc.identifier)
+        if direct:
+            return direct
+        if lc.participants:
+            return ", ".join(contacts.name(p) or p for p in lc.participants)
+        return lc.identifier
 
 
 def get_db():

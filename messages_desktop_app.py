@@ -102,8 +102,11 @@ def get_chat_summaries():
     db = messages.get_db()
     summaries = []
 
-    for chat_summary in db.chats():
-        msgs = list(db.messages(chat_id=chat_summary.id, limit=VERY_LARGE_LIMIT))
+    # Iterate LOGICAL conversations: chat.db fragments a long group across several
+    # `chat` rows (rename / member handle change), so we coalesce them first — else
+    # a years-long group shows up as multiple entries each with a partial count.
+    for lc in db.logical_chats():
+        msgs = db.messages_union(lc.member_ids, limit=VERY_LARGE_LIMIT)
 
         if not msgs:
             continue
@@ -113,20 +116,13 @@ def get_chat_summaries():
         if not dates:
             continue
 
-        earliest = min(dates).strftime("%Y-%m-%d")
-        latest = max(dates).strftime("%Y-%m-%d")
-
-        full_chat = db.chat(chat_summary.id)
-        is_group = len(full_chat.participants) > 1
-        chat_name = db.name_for(full_chat)
-
         summaries.append({
-            "id": chat_summary.id,
-            "name": chat_name,
+            "id": lc.id,
+            "name": db.logical_name(lc),
             "count": len(msgs),
-            "earliest": earliest,
-            "latest": latest,
-            "is_group": is_group
+            "earliest": min(dates).strftime("%Y-%m-%d"),
+            "latest": max(dates).strftime("%Y-%m-%d"),
+            "is_group": lc.is_group
         })
 
     summaries.sort(key=lambda x: x["count"], reverse=True)
@@ -187,12 +183,23 @@ def build_export_data(selected_ids):
     db = messages.get_db()
     export_data = []
 
-    for chat_id in selected_ids:
-        chat_id = int(chat_id)
-        chat = db.chat(chat_id)
-        chat_name = db.name_for(chat)
+    # The UI sends back logical-conversation ids (each a min member ROWID). Expand
+    # each to all of its constituent chat rows so a selected group exports its FULL
+    # history even when iMessage fragmented it across several rows.
+    logical = {lc.id: lc for lc in db.logical_chats()}
 
-        for msg in db.messages(chat_id=chat_id, limit=VERY_LARGE_LIMIT):
+    for selected_id in selected_ids:
+        selected_id = int(selected_id)
+        lc = logical.get(selected_id)
+        if lc is not None:
+            member_ids = lc.member_ids
+            chat_name = db.logical_name(lc)
+        else:
+            # Defensive fallback: an id we didn't surface — export just that row.
+            member_ids = [selected_id]
+            chat_name = db.name_for(db.chat(selected_id))
+
+        for msg in db.messages_union(member_ids, limit=VERY_LARGE_LIMIT):
             export_data.append({
                 "chat": chat_name,
                 "date": msg.date.strftime("%Y-%m-%d") if msg.date else None,
