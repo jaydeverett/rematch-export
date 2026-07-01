@@ -12,6 +12,7 @@ import os
 import sqlite3
 import json
 import time
+import gzip
 import tempfile
 import threading
 import webbrowser
@@ -242,11 +243,16 @@ def send_to_phone():
     if not export_data:
         return jsonify({"ok": False, "error": "No messages found in the selected conversations."}), 400
 
-    body = json.dumps({"code": code, "payload": export_data}).encode("utf-8")
+    # Gzip the body. Vercel serverless caps the request at ~4.5 MB and a real
+    # iMessage export easily exceeds that raw; compressing (~5-10x on this very
+    # repetitive JSON) keeps us under the wire limit. The ingest endpoint detects
+    # the gzip magic bytes and inflates.
+    raw = json.dumps({"code": code, "payload": export_data}).encode("utf-8")
+    body = gzip.compress(raw)
     req = urllib.request.Request(
         INGEST_URL,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/octet-stream"},
         method="POST",
     )
 
