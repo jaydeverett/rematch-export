@@ -1098,6 +1098,7 @@
         // Initialization
         // ================================
         (function init() {
+            checkRematchHealth();
             if (currentStep === 2) {
                 // Already have access — skip FDA, load conversations
                 sessionStorage.removeItem('fdaWaitTicks');
@@ -1501,6 +1502,28 @@
 
             setInterval(checkServer, 500);
         })();
+
+        // ================================
+        // Version + Rematch reachability footer
+        // ================================
+        // Runs once on load. The version tells support which build a tester is on
+        // (screenshots included); the reachability probe surfaces "your network
+        // can't reach Rematch" up front instead of as a cryptic send failure.
+        async function checkRematchHealth() {
+            const el = document.getElementById('healthFooter');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/health');
+                const h = await res.json();
+                el.textContent = h.reachable
+                    ? `RematchExport v${h.version} · ✓ Connected to Rematch`
+                    : `RematchExport v${h.version} · ⚠️ Can't reach Rematch — check your internet connection`;
+                el.style.color = h.reachable ? 'var(--muted)' : '#B91C1C';
+            } catch (e) {
+                el.textContent = 'RematchExport';
+            }
+        }
     </script>
+    <div id="healthFooter" style="position: fixed; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--muted); pointer-events: none;">RematchExport</div>
 </body>
 </html>

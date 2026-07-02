@@ -32,6 +32,10 @@ DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
 VERY_LARGE_LIMIT = 10_000_000
 PORT = 5050
 APP_NAME = 'RematchExport'
+# Shown in the UI footer and returned by /api/health — bump with each release so
+# support can tell at a glance which build a tester is running (a v1.6.x debugging
+# session burned hours because no build was identifiable from screenshots).
+APP_VERSION = "1.6.4"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
@@ -227,6 +231,26 @@ def export():
         as_attachment=True,
         download_name=f"Rematch Export - {today}.json"
     )
+
+
+@app.route("/api/health")
+def api_health():
+    """Reachability probe the UI runs on load: can this Mac reach the Rematch
+    backend? Any HTTP response from the ingest endpoint (405 for GET is expected —
+    it's POST-only) proves connectivity end-to-end through whatever network/TLS
+    path send-to-phone will use; only a transport failure means unreachable. This
+    surfaces "your network blocks Rematch" BEFORE the user invests in selecting
+    conversations, instead of as a cryptic send failure."""
+    reachable = True
+    try:
+        req = urllib.request.Request(INGEST_URL, method="GET")
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CONTEXT):
+            pass
+    except urllib.error.HTTPError:
+        pass  # Server answered (any status) — reachable.
+    except Exception:
+        reachable = False
+    return jsonify({"version": APP_VERSION, "reachable": reachable})
 
 
 @app.route("/send-to-phone", methods=["POST"])
