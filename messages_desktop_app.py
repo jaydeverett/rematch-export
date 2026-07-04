@@ -22,6 +22,7 @@ import subprocess
 import signal
 import urllib.request
 import urllib.error
+import urllib.parse
 import ssl
 import certifi
 
@@ -35,10 +36,23 @@ APP_NAME = 'RematchExport'
 # Shown in the UI footer and returned by /api/health — bump with each release so
 # support can tell at a glance which build a tester is running (a v1.6.x debugging
 # session burned hours because no build was identifiable from screenshots).
-APP_VERSION = "1.6.4"
+APP_VERSION = "1.7.0"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
+# QR pairing (reverse direction): this Mac mints an unbound code, shows it as a
+# QR, the phone scans + links it, and the send then uses that code via /ingest.
+PAIR_MAC_URL = "https://rematch-app-orpin.vercel.app/api/imessage/pair/mac"
+PAIR_PEEK_URL = "https://rematch-app-orpin.vercel.app/api/imessage/pair/peek"
+
+# qrcode is a pure-python dep bundled by PyInstaller. If a build ever misses it,
+# the QR panel silently stays hidden and the typed-code path still works.
+try:
+    import qrcode
+    import qrcode.image.svg
+    QR_AVAILABLE = True
+except Exception:
+    QR_AVAILABLE = False
 
 # Trust roots for the HTTPS call above. A PyInstaller-bundled Python ships its own
 # OpenSSL but NO CA certificate bundle, so a bare urlopen() fails verification with
@@ -251,6 +265,48 @@ def api_health():
     except Exception:
         reachable = False
     return jsonify({"version": APP_VERSION, "reachable": reachable})
+
+
+@app.route("/qr-pair/start", methods=["POST"])
+def qr_pair_start():
+    """Mint an unbound pairing code from the Rematch backend and render it as a
+    QR the phone scans (payload "rematch-pair:CODE"). The code authorizes
+    nothing until a signed-in phone links it."""
+    if not QR_AVAILABLE:
+        return jsonify({"ok": False, "error": "QR unavailable in this build."})
+    try:
+        req = urllib.request.Request(PAIR_MAC_URL, data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=15, context=SSL_CONTEXT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        code = data.get("code")
+        if not code:
+            return jsonify({"ok": False, "error": "Couldn't get a code. Try again."})
+        img = qrcode.make(
+            f"rematch-pair:{code}",
+            image_factory=qrcode.image.svg.SvgPathImage,
+        )
+        svg = img.to_string().decode("utf-8")
+        return jsonify({"ok": True, "code": code, "expiresAt": data.get("expiresAt"), "svg": svg})
+    except Exception:
+        return jsonify({"ok": False, "error": "Couldn't reach Rematch."})
+
+
+@app.route("/qr-pair/status")
+def qr_pair_status():
+    """Poll whether the phone has scanned + linked the displayed QR code."""
+    code = (request.args.get("code") or "").strip().upper()
+    if not code:
+        return jsonify({"status": "unknown"})
+    try:
+        with urllib.request.urlopen(
+            f"{PAIR_PEEK_URL}?code={urllib.parse.quote(code)}",
+            timeout=10,
+            context=SSL_CONTEXT,
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return jsonify({"status": data.get("status", "unknown")})
+    except Exception:
+        return jsonify({"status": "network-error"})
 
 
 @app.route("/send-to-phone", methods=["POST"])
