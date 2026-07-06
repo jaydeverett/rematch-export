@@ -36,10 +36,17 @@ APP_NAME = 'RematchExport'
 # Shown in the UI footer and returned by /api/health — bump with each release so
 # support can tell at a glance which build a tester is running (a v1.6.x debugging
 # session burned hours because no build was identifiable from screenshots).
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.8.0"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
+# Signed-URL minting for the storage upload path (v1.8.0): the payload goes
+# straight to Supabase Storage, one gzipped object per conversation, and only
+# a tiny manifest rides the ingest commit. Vercel caps request bodies at
+# ~4.5 MB and returns a bare 413 BEFORE our function — a full-corpus send hit
+# that cap even gzipped (the "code isn't valid" phantom, twice). Storage PUTs
+# have no such cap, and per-conversation objects give retries + progress.
+UPLOAD_URLS_URL = "https://rematch-app-orpin.vercel.app/api/imessage/upload-urls"
 # QR pairing (reverse direction): this Mac mints an unbound code, shows it as a
 # QR, the phone scans + links it, and the send then uses that code via /ingest.
 PAIR_MAC_URL = "https://rematch-app-orpin.vercel.app/api/imessage/pair/mac"
@@ -196,11 +203,13 @@ def api_conversations():
     return jsonify({"individual": individual, "groups": groups})
 
 
-def build_export_data(selected_ids):
-    """Build the flat {chat, date, from_me, text} array for the selected chats.
-    Shared by the file download (/export) and the phone handoff (/send-to-phone)."""
+def build_conversation_exports(selected_ids):
+    """Build the {chat, date, from_me, text} rows for each selected chat,
+    grouped per conversation: [{"name": …, "rows": […]}, …]. The send-to-phone
+    path uploads one storage object per conversation; the file download
+    flattens the groups back into the classic single array."""
     db = messages.get_db()
-    export_data = []
+    conversations = []
 
     # The UI sends back logical-conversation ids (each a min member ROWID). Expand
     # each to all of its constituent chat rows so a selected group exports its FULL
@@ -218,14 +227,26 @@ def build_export_data(selected_ids):
             member_ids = [selected_id]
             chat_name = db.name_for(db.chat(selected_id))
 
+        rows = []
         for msg in db.messages_union(member_ids, limit=VERY_LARGE_LIMIT):
-            export_data.append({
+            rows.append({
                 "chat": chat_name,
                 "date": msg.date.strftime("%Y-%m-%d") if msg.date else None,
                 "from_me": msg.is_from_me,
                 "text": msg.text
             })
 
+        if rows:
+            conversations.append({"name": chat_name, "rows": rows})
+
+    return conversations
+
+
+def build_export_data(selected_ids):
+    """The flat single-array export (file download path)."""
+    export_data = []
+    for conv in build_conversation_exports(selected_ids):
+        export_data.extend(conv["rows"])
     return export_data
 
 
@@ -270,8 +291,10 @@ def api_health():
 @app.route("/qr-pair/start", methods=["POST"])
 def qr_pair_start():
     """Mint an unbound pairing code from the Rematch backend and render it as a
-    QR the phone scans (payload "rematch-pair:CODE"). The code authorizes
-    nothing until a signed-in phone links it."""
+    QR the phone scans (payload "rematch://pair?code=CODE" — a real deep link,
+    so the SYSTEM camera opens the Rematch app directly; the in-app scanner
+    accepts it too, plus the legacy "rematch-pair:CODE" form). The code
+    authorizes nothing until a signed-in phone links it."""
     if not QR_AVAILABLE:
         return jsonify({"ok": False, "error": "QR unavailable in this build."})
     try:
@@ -282,7 +305,7 @@ def qr_pair_start():
         if not code:
             return jsonify({"ok": False, "error": "Couldn't get a code. Try again."})
         img = qrcode.make(
-            f"rematch-pair:{code}",
+            f"rematch://pair?code={code}",
             image_factory=qrcode.image.svg.SvgPathImage,
         )
         svg = img.to_string().decode("utf-8")
@@ -309,46 +332,110 @@ def qr_pair_status():
         return jsonify({"status": "network-error"})
 
 
+def _post_json(url, obj, timeout=60):
+    """POST a JSON body and return the parsed JSON response (raises HTTPError)."""
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(obj).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout, context=SSL_CONTEXT) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _http_error_message(e):
+    """A server-provided error message, or an HONEST status-code fallback.
+
+    Never guess a cause the response didn't state: a platform 413 mislabeled as
+    "that code isn't valid" burned two full debugging sessions (pt-8, pt-15)."""
+    try:
+        err = json.loads(e.read().decode("utf-8")).get("error")
+    except Exception:
+        err = None
+    return err or (
+        f"Send failed (HTTP {e.code}). Try again — and if it keeps happening, "
+        "download the newest Mac app from letsrematch.vercel.app/mac."
+    )
+
+
+# Live progress for the current send, polled by the UI (/send-progress) so a
+# long multi-conversation upload shows movement instead of a frozen button.
+SEND_PROGRESS = {"active": False, "done": 0, "total": 0}
+
+
+@app.route("/send-progress")
+def send_progress():
+    return jsonify(SEND_PROGRESS)
+
+
 @app.route("/send-to-phone", methods=["POST"])
 def send_to_phone():
     """Send the selected conversations straight to the user's Rematch account via
-    the 6-char pairing code shown in the phone app — no file handling. The code
-    authorizes depositing one export; the phone then claims it."""
+    the 6-char pairing code shown in the phone app — no file handling.
+
+    v1.8.0 storage path: (1) ask Rematch for one signed upload URL per selected
+    conversation (the code authorizes this), (2) PUT each conversation's gzipped
+    rows straight to storage — no size ceiling, per-conversation retry —
+    (3) commit a tiny manifest to the ingest endpoint. The phone then claims the
+    conversation index and downloads only what the user confirms."""
     data = request.get_json()
     code = (data.get("code") or "").strip().upper()
     if not code:
         return jsonify({"ok": False, "error": "Enter the code from your Rematch app."}), 400
 
-    export_data = build_export_data(data.get("chat_ids", []))
-    if not export_data:
+    conversations = build_conversation_exports(data.get("chat_ids", []))
+    if not conversations:
         return jsonify({"ok": False, "error": "No messages found in the selected conversations."}), 400
 
-    # Gzip the body. Vercel serverless caps the request at ~4.5 MB and a real
-    # iMessage export easily exceeds that raw; compressing (~5-10x on this very
-    # repetitive JSON) keeps us under the wire limit. The ingest endpoint detects
-    # the gzip magic bytes and inflates.
-    raw = json.dumps({"code": code, "payload": export_data}).encode("utf-8")
-    body = gzip.compress(raw)
-    req = urllib.request.Request(
-        INGEST_URL,
-        data=body,
-        headers={"Content-Type": "application/octet-stream"},
-        method="POST",
-    )
-
+    SEND_PROGRESS.update(active=True, done=0, total=len(conversations))
     try:
-        with urllib.request.urlopen(req, timeout=120, context=SSL_CONTEXT) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            return jsonify({"ok": True, "conversationCount": result.get("conversationCount")})
+        # 1. Signed upload URLs, one per conversation.
+        minted = _post_json(UPLOAD_URLS_URL, {
+            "code": code,
+            "conversations": [{"name": c["name"], "count": len(c["rows"])} for c in conversations],
+        })
+        uploads = minted.get("uploads") or []
+        if len(uploads) != len(conversations):
+            return jsonify({"ok": False, "error": "Rematch didn't accept the upload. Try again."})
+
+        # 2. PUT each conversation's gzipped rows to storage (one retry each).
+        manifest = []
+        for conv, upload in zip(conversations, uploads):
+            blob = gzip.compress(json.dumps(conv["rows"]).encode("utf-8"))
+            for attempt in (1, 2):
+                try:
+                    put = urllib.request.Request(
+                        upload["url"],
+                        data=blob,
+                        headers={"Content-Type": "application/gzip", "x-upsert": "true"},
+                        method="PUT",
+                    )
+                    with urllib.request.urlopen(put, timeout=180, context=SSL_CONTEXT):
+                        pass
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise
+            dates = [r["date"] for r in conv["rows"] if r["date"]]
+            manifest.append({
+                "path": upload["path"],
+                "chat": conv["name"],
+                "count": len(conv["rows"]),
+                "earliest": min(dates) if dates else None,
+                "latest": max(dates) if dates else None,
+            })
+            SEND_PROGRESS["done"] += 1
+
+        # 3. Commit the manifest — flips the pairing slot to "received".
+        result = _post_json(INGEST_URL, {"code": code, "manifest": manifest})
+        return jsonify({"ok": True, "conversationCount": result.get("conversationCount")})
     except urllib.error.HTTPError as e:
-        # The ingest endpoint returns a friendly message (bad/expired code, etc.).
-        try:
-            err = json.loads(e.read().decode("utf-8")).get("error")
-        except Exception:
-            err = None
-        return jsonify({"ok": False, "error": err or "That code isn't valid. Grab a fresh one in the Rematch app."})
+        return jsonify({"ok": False, "error": _http_error_message(e)})
     except Exception:
         return jsonify({"ok": False, "error": "Couldn't reach Rematch. Check your connection and try again."})
+    finally:
+        SEND_PROGRESS["active"] = False
 
 
 # -------------------------

@@ -1416,15 +1416,24 @@
                 if (!data.ok) return; // QR unavailable — typed code carries the flow
                 qrCode = data.code;
                 qrLinked = false;
+                // A remint may follow a lapsed LINKED code — release the input
+                // the earlier link froze, so the typed-code fallback still works.
+                const input = document.getElementById('pairCode');
+                if (input.disabled) { input.disabled = false; input.value = ''; }
                 document.getElementById('qrSvg').innerHTML = data.svg;
                 document.getElementById('qrPanel').style.display = '';
                 document.getElementById('sendLabel').textContent = 'Or enter the code from your Rematch app';
                 const st = document.getElementById('qrStatus');
                 st.classList.remove('linked');
                 st.textContent = 'In Rematch, choose iMessage \u2192 \u201cScan it instead\u201d and point at this code.';
+                refreshSendBtn();
                 clearInterval(qrPollTimer);
                 qrPollTimer = setInterval(pollQrStatus, 3000);
-            } catch (e) { /* offline — health banner already covers this */ }
+            } catch (e) {
+                // Offline at mint time — retry, else the panel silently shows
+                // no QR (the stale-QR trap in another costume).
+                if (currentStep === 2) setTimeout(startQrPair, 10000);
+            }
         }
 
         async function pollQrStatus() {
@@ -1432,9 +1441,17 @@
             try {
                 const res = await fetch('/qr-pair/status?code=' + encodeURIComponent(qrCode));
                 const data = await res.json();
-                if (data.status === 'linked' || data.status === 'received') {
-                    qrLinked = true;
+                if (data.status === 'received') {
+                    // The send landed and the phone is picking it up — done here.
                     clearInterval(qrPollTimer);
+                    return;
+                }
+                if (data.status === 'linked') {
+                    if (qrLinked) return;
+                    qrLinked = true;
+                    // KEEP polling: a linked code still expires (10-min window),
+                    // and stopping here is exactly what left a stale
+                    // "connected" panel over a dead code.
                     const input = document.getElementById('pairCode');
                     input.value = qrCode;
                     input.disabled = true;
@@ -1443,7 +1460,8 @@
                     st.textContent = '\u2713 Phone connected \u2014 select conversations and press Send to phone.';
                     refreshSendBtn();
                 } else if (data.status === 'expired' || data.status === 'unknown') {
-                    // Code lapsed before a scan — mint a fresh one in place.
+                    // Code lapsed — before a scan OR after a link. Mint a fresh
+                    // one in place; never show a dead QR or a stale "connected".
                     startQrPair();
                 }
             } catch (e) { /* transient — keep polling */ }
@@ -1476,6 +1494,18 @@
             btn.disabled = true;
             btn.textContent = 'Sending...';
 
+            // Per-conversation progress: the storage path uploads one object per
+            // conversation, so a big send shows movement instead of a frozen button.
+            const progressTimer = setInterval(async () => {
+                try {
+                    const r = await fetch('/send-progress');
+                    const p = await r.json();
+                    if (p.active && p.total > 1) {
+                        btn.textContent = 'Sending ' + Math.min(p.done + 1, p.total) + ' of ' + p.total + '...';
+                    }
+                } catch (e) { /* cosmetic only */ }
+            }, 400);
+
             try {
                 const res = await fetch('/send-to-phone', {
                     method: 'POST',
@@ -1493,6 +1523,7 @@
                 errEl.textContent = "Couldn't reach Rematch. Check your connection and try again.";
             }
 
+            clearInterval(progressTimer);
             btn.textContent = 'Send to phone';
             refreshSendBtn();
         }
@@ -1571,6 +1602,9 @@
             document.getElementById('exportBtn').textContent = 'Download instead';
             document.getElementById('sendBtn').textContent = 'Send to phone';
             updateUI();
+            // The previous code was consumed by the send — mint a fresh QR so a
+            // second export doesn't start from a dead pairing.
+            startQrPair();
         }
 
         // ================================
