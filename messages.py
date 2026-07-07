@@ -416,6 +416,52 @@ class DB:
             out.append(Message(_apple_time_to_dt(r["date"]), r["is_from_me"], text))
         return out
 
+    def summary_union(self, member_ids):
+        """(count, earliest_dt, latest_dt) for the given chat rows — WITHOUT
+        materializing any message.
+
+        The conversation list only needs a count and a date range, but computing
+        them by fetching every row (messages_union) meant reading + typedstream-
+        decoding the user's entire message history on every load — ~10s of
+        spinner on a big chat.db. chat_message_join carries a message_date
+        mirror of message.date with a covering (chat_id, message_date,
+        message_id) index, so this aggregate never touches the message table.
+
+        Fallbacks, so odd databases degrade to correct-but-slower instead of
+        wrong: a chat.db too old to have cmj.message_date aggregates against
+        message.date directly; one where message_date is present but zeroed
+        (DEFAULT 0) recovers the date range the same way. Zero/NULL dates are
+        excluded from the range — messages_union-based summaries would have
+        rendered them as a bogus 2001-01-01."""
+        if not member_ids:
+            return 0, None, None
+        ids = [int(i) for i in member_ids]
+        placeholders = ",".join("?" for _ in ids)
+        join_sql = (
+            "SELECT COUNT(DISTINCT m.ROWID) AS n, "
+            "       MIN(CASE WHEN m.date > 0 THEN m.date END) AS lo, "
+            "       MAX(CASE WHEN m.date > 0 THEN m.date END) AS hi "
+            "FROM message m "
+            "JOIN chat_message_join cmj ON cmj.message_id = m.ROWID "
+            f"WHERE cmj.chat_id IN ({placeholders})"
+        )
+        try:
+            r = self.con.execute(
+                "SELECT COUNT(DISTINCT message_id) AS n, "
+                "       MIN(CASE WHEN message_date > 0 THEN message_date END) AS lo, "
+                "       MAX(CASE WHEN message_date > 0 THEN message_date END) AS hi "
+                f"FROM chat_message_join WHERE chat_id IN ({placeholders})",
+                ids,
+            ).fetchone()
+            if r["n"] and r["lo"] is None:  # dates zeroed — recover from message table
+                slow = self.con.execute(join_sql, ids).fetchone()
+                r = {"n": r["n"], "lo": slow["lo"], "hi": slow["hi"]}
+        except sqlite3.OperationalError:  # pre-message_date chat.db
+            r = self.con.execute(join_sql, ids).fetchone()
+        return (r["n"] or 0,
+                _apple_time_to_dt(r["lo"]),
+                _apple_time_to_dt(r["hi"]))
+
     def logical_name(self, lc):
         """Friendly label for a logical conversation: its given name, else the
         resolved contact name(s), else the raw identifier."""

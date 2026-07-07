@@ -82,7 +82,7 @@ echo "NOW NOTARIZE + STAPLE + UPLOAD (run these yourself):"
 echo
 echo "  # Option A (recommended) — reuse the ASC API key you already have for eas submit:"
 echo "  xcrun notarytool submit \"$DMG\" \\"
-echo "      --key ../rematch-mobile/AuthKey_2V28Q72UV3.p8 \\"
+echo "      --key ../Rematch/rematch-mobile/AuthKey_2V28Q72UV3.p8 \\"
 echo "      --key-id 2V28Q72UV3 \\"
 echo "      --issuer ad0f8e3b-fef1-4497-8341-39ed0d504c60 --wait"
 echo
@@ -93,6 +93,10 @@ echo "  xcrun stapler staple \"$DMG\""
 echo "  xcrun stapler validate \"$DMG\""
 echo "  spctl -a -t open --context context:primary-signature -v \"$DMG\""
 echo
+# Tag the release hint with the version actually baked into this build, so the
+# paste-ready command can't publish under a stale tag (the hint once said v1.6.0
+# forever).
+VERSION=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' messages_desktop_app.py)
 echo "  # Publish the new release (new tag -> create; --latest repoints the public download URL):"
-echo "  gh release create v1.6.0 \"$DMG\" --repo jaydeverett/rematch-export --title v1.6.0 --notes \"Universal2 build — now runs on Intel Macs as well as Apple Silicon\" --latest"
+echo "  gh release create v${VERSION} \"$DMG\" --repo jaydeverett/rematch-export --title v${VERSION} --notes \"<release notes>\" --latest"
 echo "================================================================"

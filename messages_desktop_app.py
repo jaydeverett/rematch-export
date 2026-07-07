@@ -6,6 +6,10 @@ Build the signed, notarizable .app from RematchExport.spec (NOT a one-liner):
 The committed spec uses --onedir (a proper .app bundle), which launches far faster
 on repeat opens than --onefile (which unpacks to a temp dir every launch). Notarize
 + staple steps print at the end of build.sh. See build.sh / RematchExport.spec.
+
+Process model (v1.8.1): the icon-click process is a short-lived LAUNCHER that
+spawns (or reuses) a detached --serve child running Flask, opens the browser, and
+exits — so clicking the icon always opens the app, every time (see __main__).
 '''
 
 import os
@@ -14,7 +18,6 @@ import json
 import time
 import gzip
 import tempfile
-import threading
 import webbrowser
 from datetime import datetime
 import sys
@@ -36,7 +39,7 @@ APP_NAME = 'RematchExport'
 # Shown in the UI footer and returned by /api/health — bump with each release so
 # support can tell at a glance which build a tester is running (a v1.6.x debugging
 # session burned hours because no build was identifiable from screenshots).
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.8.1"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
@@ -132,22 +135,19 @@ def get_chat_summaries():
     # `chat` rows (rename / member handle change), so we coalesce them first — else
     # a years-long group shows up as multiple entries each with a partial count.
     for lc in db.logical_chats():
-        msgs = db.messages_union(lc.member_ids, limit=VERY_LARGE_LIMIT)
+        # Aggregate-only (no message rows materialized) — fetching every message
+        # here made the conversation list take ~10s to populate on a big chat.db.
+        count, earliest, latest = db.summary_union(lc.member_ids)
 
-        if not msgs:
-            continue
-
-        dates = [m.date for m in msgs if m.date]
-
-        if not dates:
+        if not count or earliest is None:
             continue
 
         summaries.append({
             "id": lc.id,
             "name": db.logical_name(lc),
-            "count": len(msgs),
-            "earliest": min(dates).strftime("%Y-%m-%d"),
-            "latest": max(dates).strftime("%Y-%m-%d"),
+            "count": count,
+            "earliest": earliest.strftime("%Y-%m-%d"),
+            "latest": latest.strftime("%Y-%m-%d"),
             "is_group": lc.is_group
         })
 
@@ -266,6 +266,16 @@ def export():
         as_attachment=True,
         download_name=f"Rematch Export - {today}.json"
     )
+
+
+@app.route("/api/ping")
+def api_ping():
+    """Local identity probe for the LAUNCHER (see __main__): answers instantly
+    with no outbound network call — /api/health can block up to 10s probing the
+    Rematch backend, which would stall every icon click on an offline Mac. An
+    older server (≤1.8.0) 404s here and gets replaced; a foreign process on the
+    port fails the app-name check."""
+    return jsonify({"app": APP_NAME, "version": APP_VERSION})
 
 
 @app.route("/api/health")
@@ -441,20 +451,61 @@ def send_to_phone():
 # -------------------------
 # App Launcher
 # -------------------------
+#
+# The .app is a LAUNCHER, not the server. The process macOS starts on an icon
+# click probes for an already-running server, spawns one (detached) only if
+# needed, opens the browser, and EXITS within a couple of seconds.
+#
+# It used to run Flask directly and block forever — which made the app one-shot:
+# the process never registered with the Dock (no NSApplication run loop), so the
+# icon bounced until macOS gave up, and every LATER click went to the still-
+# running faceless process as a "reopen" event nobody handled. Bounce, stop,
+# nothing. With the split, a click always ends in a fresh browser tab.
 
-def kill_port(host: str, port: int) -> bool:
-    """Kill any process listening on the given host:port."""
+def kill_port(port: int) -> bool:
+    """Kill any process LISTENING on the given port. -sTCP:LISTEN matters: a bare
+    `lsof -ti :port` also matches browsers holding ESTABLISHED connections to the
+    old server, and SIGKILLing the user's browser is not a great relaunch UX."""
     killed = False
     result = subprocess.run(
-        ["lsof", "-ti", f":{port}"],
+        ["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
         capture_output=True, text=True
     )
-    pids = result.stdout.strip().splitlines()
-    for pid in pids:
+    for pid in result.stdout.strip().splitlines():
         if pid:
             os.kill(int(pid), signal.SIGKILL)
             killed = True
     return killed
+
+
+def server_version():
+    """Version of the RematchExport server already on PORT, else None."""
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{PORT}/api/ping", timeout=2
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return data.get("version") if data.get("app") == APP_NAME else None
+    except Exception:
+        return None
+
+
+def spawn_server():
+    """Start the Flask server as a DETACHED child (its own session, no inherited
+    stdio) so it survives this launcher process exiting. The child is this same
+    binary re-run with --serve."""
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--serve"]
+    else:
+        cmd = [sys.executable, os.path.abspath(__file__), "--serve"]
+    subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
 
 def launch_browser():
     # Cache-bust the URL with a per-launch token. The bare 127.0.0.1:PORT/ may
@@ -465,11 +516,20 @@ def launch_browser():
     token = os.urandom(4).hex()
     webbrowser.open(f"http://127.0.0.1:{PORT}/?v={token}")
 
+
 if __name__ == "__main__":
-    # Only pause if we actually had to kill a stale instance — a fresh launch
-    # (the common case for a just-downloaded app) needn't wait at all. This drops
-    # ~3s of dead time off cold start (was: unconditional 2.0s sleep + 1.0s timer).
-    if kill_port('127.0.0.1', PORT):
-        time.sleep(0.4)  # let the SIGKILL'd socket release before we rebind
-    threading.Timer(0.4, launch_browser).start()
-    app.run(port=PORT, debug=False)
+    if "--serve" in sys.argv:
+        # SERVER child: just run Flask. The launcher already handled the port
+        # and opens the browser once we answer /api/ping.
+        app.run(port=PORT, debug=False)
+        sys.exit(0)
+
+    # LAUNCHER: reuse a matching live server; replace a stale/foreign one.
+    if server_version() != APP_VERSION:
+        if kill_port(PORT):
+            time.sleep(0.4)  # let the SIGKILL'd socket release before we rebind
+        spawn_server()
+        deadline = time.time() + 15
+        while time.time() < deadline and server_version() != APP_VERSION:
+            time.sleep(0.25)
+    launch_browser()
