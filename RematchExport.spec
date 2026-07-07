@@ -10,6 +10,12 @@
 # --onedir lays the runtime down once inside Contents/Frameworks, so repeat launches are
 # fast. The custom icon (the iPhone app icon) comes from RematchExport.icns below.
 
+# Single source of truth for the version: the APP_VERSION the app itself reports.
+# (The plist below once said 1.6.2 forever because it was hardcoded here.)
+import re
+with open('messages_desktop_app.py') as _f:
+    APP_VERSION = re.search(r'^APP_VERSION = "(.+)"$', _f.read(), re.M).group(1)
+
 a = Analysis(
     ['messages_desktop_app.py'],
     pathex=[],
@@ -18,7 +24,9 @@ a = Analysis(
     # certifi: bundle its CA roots (cacert.pem) so HTTPS works in the packaged app.
     # PyInstaller's certifi hook collects the data file once certifi is imported;
     # naming it here makes the dependency explicit and analysis-proof.
-    hiddenimports=['certifi'],
+    # AppKit (PyObjC): the Dock-persistent run loop — if it silently fell out of
+    # a build the app would quietly regress to the vanishing-icon launcher.
+    hiddenimports=['certifi', 'AppKit'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -64,8 +72,8 @@ app = BUNDLE(
     icon='RematchExport.icns',
     bundle_identifier='com.rematch.export',
     info_plist={
-        'CFBundleShortVersionString': '1.6.2',
-        'CFBundleVersion': '1.6.2',
+        'CFBundleShortVersionString': APP_VERSION,
+        'CFBundleVersion': APP_VERSION,
         'NSHighResolutionCapable': True,
         'LSApplicationCategoryType': 'public.app-category.utilities',
     },

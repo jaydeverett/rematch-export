@@ -7,9 +7,10 @@ The committed spec uses --onedir (a proper .app bundle), which launches far fast
 on repeat opens than --onefile (which unpacks to a temp dir every launch). Notarize
 + staple steps print at the end of build.sh. See build.sh / RematchExport.spec.
 
-Process model (v1.8.1): the icon-click process is a short-lived LAUNCHER that
-spawns (or reuses) a detached --serve child running Flask, opens the browser, and
-exits — so clicking the icon always opens the app, every time (see __main__).
+Process model (v1.8.2): the icon-click process IS the app — Flask on a daemon
+thread + an AppKit run loop on the main thread, so the Dock icon persists while
+it runs, Dock clicks reopen the page, and Quit quits. Falls back to the v1.8.1
+launcher/detached-server split if AppKit is missing from a build (see __main__).
 '''
 
 import os
@@ -18,6 +19,7 @@ import json
 import time
 import gzip
 import tempfile
+import threading
 import webbrowser
 from datetime import datetime
 import sys
@@ -39,7 +41,7 @@ APP_NAME = 'RematchExport'
 # Shown in the UI footer and returned by /api/health — bump with each release so
 # support can tell at a glance which build a tester is running (a v1.6.x debugging
 # session burned hours because no build was identifiable from screenshots).
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.8.2"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
@@ -54,6 +56,22 @@ UPLOAD_URLS_URL = "https://rematch-app-orpin.vercel.app/api/imessage/upload-urls
 # QR, the phone scans + links it, and the send then uses that code via /ingest.
 PAIR_MAC_URL = "https://rematch-app-orpin.vercel.app/api/imessage/pair/mac"
 PAIR_PEEK_URL = "https://rematch-app-orpin.vercel.app/api/imessage/pair/peek"
+
+# PyObjC gives the app a real AppKit run loop so it lives in the Dock like a
+# normal Mac app (icon persists, Dock clicks reopen the page, Quit quits). If a
+# build ever misses it, we fall back to the v1.8.1 launcher/detached-server
+# model — everything still works, the icon just doesn't stay in the Dock.
+try:
+    from AppKit import (
+        NSApplication,
+        NSApplicationActivationPolicyRegular,
+        NSMenu,
+        NSMenuItem,
+        NSObject,
+    )
+    APPKIT_AVAILABLE = True
+except Exception:
+    APPKIT_AVAILABLE = False
 
 # qrcode is a pure-python dep bundled by PyInstaller. If a build ever misses it,
 # the QR panel silently stays hidden and the typed-code path still works.
@@ -449,18 +467,24 @@ def send_to_phone():
 
 
 # -------------------------
-# App Launcher
+# App Lifecycle
 # -------------------------
 #
-# The .app is a LAUNCHER, not the server. The process macOS starts on an icon
-# click probes for an already-running server, spawns one (detached) only if
-# needed, opens the browser, and EXITS within a couple of seconds.
+# DOCK-APP MODE (v1.8.2, the normal path): the clicked process hosts BOTH the
+# Flask server (daemon thread) and a real AppKit run loop (main thread). The run
+# loop is what makes it a first-class Mac app: the Dock icon appears and STAYS
+# while the app runs, clicking it fires applicationShouldHandleReopen (we open
+# the page again), and Quit actually quits — the daemon server thread dies with
+# the process. History here, so nobody regresses it:
+#   - pre-1.8.1 ran Flask directly with NO run loop: the process never checked
+#     in with the Dock (icon bounced until macOS gave up) and reopen events went
+#     unhandled — the app was one-shot per boot.
+#   - v1.8.1 fixed reopen with a launcher/detached-server split, but the
+#     launcher exiting meant the Dock icon vanished seconds after every click.
 #
-# It used to run Flask directly and block forever — which made the app one-shot:
-# the process never registered with the Dock (no NSApplication run loop), so the
-# icon bounced until macOS gave up, and every LATER click went to the still-
-# running faceless process as a "reopen" event nobody handled. Bounce, stop,
-# nothing. With the split, a click always ends in a fresh browser tab.
+# FALLBACK (no AppKit in the build): exactly the v1.8.1 split — a short-lived
+# launcher reuses/spawns a detached --serve child and exits. Works, minus the
+# persistent icon.
 
 def kill_port(port: int) -> bool:
     """Kill any process LISTENING on the given port. -sTCP:LISTEN matters: a bare
@@ -517,19 +541,87 @@ def launch_browser():
     webbrowser.open(f"http://127.0.0.1:{PORT}/?v={token}")
 
 
+_LAST_BROWSER_OPEN = 0.0
+
+
+def open_browser_when_ready():
+    """Open the page once OUR server answers /api/ping (or after 15s regardless,
+    so a startup hiccup surfaces as a visible error page instead of silence).
+
+    Debounced: LaunchServices can deliver a small burst of launch/reopen events
+    for ONE user gesture (observed: an icon click yielding two reopen fires) —
+    one gesture should mean one tab."""
+    global _LAST_BROWSER_OPEN
+    deadline = time.time() + 15
+    while time.time() < deadline and server_version() != APP_VERSION:
+        time.sleep(0.25)
+    if time.time() - _LAST_BROWSER_OPEN < 2:
+        return
+    _LAST_BROWSER_OPEN = time.time()
+    launch_browser()
+
+
+if APPKIT_AVAILABLE:
+    class _DockAppDelegate(NSObject):
+        def applicationDidFinishLaunching_(self, note):
+            # Never block the run loop — Dock/menu stay responsive while we wait.
+            threading.Thread(target=open_browser_when_ready, daemon=True).start()
+
+        def applicationShouldHandleReopen_hasVisibleWindows_(self, sender, has_windows):
+            # Dock icon clicked while running: open the page again (instant —
+            # the server is already up, so the ping poll returns immediately).
+            threading.Thread(target=open_browser_when_ready, daemon=True).start()
+            return False
+
+        def applicationSupportsSecureRestorableState_(self, sender):
+            return True  # no windows to restore; silences the macOS 14 warning
+
+
+_DELEGATE = None  # strong ref — NSApplication holds its delegate weakly
+
+
+def run_dock_app():
+    """Block on the AppKit run loop until the user quits (Dock ▸ Quit / Cmd-Q)."""
+    global _DELEGATE
+    nsapp = NSApplication.sharedApplication()
+    # Regular = Dock icon + reopen events. The bundled app is Regular anyway;
+    # this makes dev runs from a terminal behave the same.
+    nsapp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    _DELEGATE = _DockAppDelegate.alloc().init()
+    nsapp.setDelegate_(_DELEGATE)
+    # Minimal menu so Cmd-Q works when the app is frontmost.
+    menubar = NSMenu.alloc().init()
+    app_item = NSMenuItem.alloc().init()
+    menubar.addItem_(app_item)
+    app_menu = NSMenu.alloc().init()
+    app_menu.addItem_(NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+        f"Quit {APP_NAME}", "terminate:", "q"))
+    app_item.setSubmenu_(app_menu)
+    nsapp.setMainMenu_(menubar)
+    nsapp.run()
+
+
 if __name__ == "__main__":
     if "--serve" in sys.argv:
-        # SERVER child: just run Flask. The launcher already handled the port
-        # and opens the browser once we answer /api/ping.
+        # Detached server child (fallback mode only): just run Flask.
         app.run(port=PORT, debug=False)
         sys.exit(0)
 
-    # LAUNCHER: reuse a matching live server; replace a stale/foreign one.
-    if server_version() != APP_VERSION:
+    if APPKIT_AVAILABLE:
+        # DOCK-APP MODE: take over the port unconditionally — anything on it is
+        # a leftover (pre-split one-shot, a v1.8.1 detached server, or foreign);
+        # this process is the server for as long as its icon is in the Dock.
         if kill_port(PORT):
             time.sleep(0.4)  # let the SIGKILL'd socket release before we rebind
-        spawn_server()
-        deadline = time.time() + 15
-        while time.time() < deadline and server_version() != APP_VERSION:
-            time.sleep(0.25)
-    launch_browser()
+        threading.Thread(
+            target=lambda: app.run(port=PORT, debug=False), daemon=True
+        ).start()
+        run_dock_app()
+    else:
+        # FALLBACK LAUNCHER (v1.8.1 model): reuse a matching live server;
+        # replace a stale/foreign one; exit after opening the browser.
+        if server_version() != APP_VERSION:
+            if kill_port(PORT):
+                time.sleep(0.4)
+            spawn_server()
+        open_browser_when_ready()

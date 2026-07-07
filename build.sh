@@ -8,7 +8,9 @@
 #   /Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13 -m venv .venv
 #   source .venv/bin/activate
 #   pip install --no-binary markupsafe markupsafe   # its C _speedups builds fat from this Python
-#   pip install pyinstaller flask ds-store
+#   pip install pyinstaller flask ds-store pyobjc-framework-Cocoa
+#   (pyobjc = the AppKit run loop that keeps the app in the Dock; its wheels are
+#    universal2, verify with: lipo -info .venv/lib/python*/site-packages/objc/_objc*.so)
 #   (ds-store drives dmg_layout.py — the drag-to-install window. Regenerating the
 #    rounded app icon via make_icon.py additionally needs Pillow.)
 #
