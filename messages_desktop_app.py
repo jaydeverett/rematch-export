@@ -41,7 +41,7 @@ APP_NAME = 'RematchExport'
 # Shown in the UI footer and returned by /api/health — bump with each release so
 # support can tell at a glance which build a tester is running (a v1.6.x debugging
 # session burned hours because no build was identifiable from screenshots).
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.10.0"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
@@ -251,6 +251,7 @@ def build_conversation_exports(selected_ids):
                 "chat": chat_name,
                 "date": msg.date.strftime("%Y-%m-%d") if msg.date else None,
                 "from_me": msg.is_from_me,
+                "sender": msg.sender,
                 "text": msg.text
             })
 

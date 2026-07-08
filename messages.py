@@ -50,10 +50,11 @@ class Chat:
 
 
 class Message:
-    def __init__(self, date, is_from_me, text):
+    def __init__(self, date, is_from_me, text, sender=None):
         self.date = date              # datetime | None
         self.is_from_me = bool(is_from_me)
         self.text = text              # str | None
+        self.sender = sender          # resolved contact name | raw handle | "You" | None
 
 
 class LogicalChat:
@@ -207,6 +208,18 @@ def _get_contacts():
     return _CONTACTS
 
 
+def _resolve_sender(is_from_me, sender_handle):
+    """Per-message speaker label for the export. The user's own messages are "You";
+    everyone else resolves to their Contacts name, falling back to the raw handle
+    (phone/email) so distinct people stay distinct even when not in Contacts.
+    Returns None only when there is no handle at all (rare system rows)."""
+    if is_from_me:
+        return "You"
+    if not sender_handle:
+        return None
+    return _get_contacts().name(sender_handle) or sender_handle.strip()
+
+
 def _participant_key(handle):
     """A stable identity for a participant, used to decide whether two chat rows are
     the same logical conversation. Resolve the handle to a contact NAME when possible
@@ -279,9 +292,11 @@ class DB:
         """All messages in a chat, oldest first, with attributedBody fallback."""
         rows = self.con.execute(
             "SELECT m.date AS date, m.is_from_me AS is_from_me, "
-            "       m.text AS text, m.attributedBody AS attributed_body "
+            "       m.text AS text, m.attributedBody AS attributed_body, "
+            "       h.id AS sender_handle "
             "FROM message m "
             "JOIN chat_message_join cmj ON cmj.message_id = m.ROWID "
+            "LEFT JOIN handle h ON h.ROWID = m.handle_id "
             "WHERE cmj.chat_id = ? "
             "ORDER BY m.date ASC "
             "LIMIT ?",
@@ -292,7 +307,10 @@ class DB:
             text = r["text"]
             if not text and r["attributed_body"] is not None:
                 text = _decode_attributed_body(r["attributed_body"])
-            out.append(Message(_apple_time_to_dt(r["date"]), r["is_from_me"], text))
+            out.append(Message(
+                _apple_time_to_dt(r["date"]), r["is_from_me"], text,
+                _resolve_sender(r["is_from_me"], r["sender_handle"]),
+            ))
         return out
 
     def logical_chats(self):
@@ -397,9 +415,11 @@ class DB:
         placeholders = ",".join("?" for _ in member_ids)
         rows = self.con.execute(
             "SELECT m.ROWID AS rid, m.date AS date, m.is_from_me AS is_from_me, "
-            "       m.text AS text, m.attributedBody AS attributed_body "
+            "       m.text AS text, m.attributedBody AS attributed_body, "
+            "       h.id AS sender_handle "
             "FROM message m "
             "JOIN chat_message_join cmj ON cmj.message_id = m.ROWID "
+            "LEFT JOIN handle h ON h.ROWID = m.handle_id "
             f"WHERE cmj.chat_id IN ({placeholders}) "
             "ORDER BY m.date ASC "
             "LIMIT ?",
@@ -413,7 +433,10 @@ class DB:
             text = r["text"]
             if not text and r["attributed_body"] is not None:
                 text = _decode_attributed_body(r["attributed_body"])
-            out.append(Message(_apple_time_to_dt(r["date"]), r["is_from_me"], text))
+            out.append(Message(
+                _apple_time_to_dt(r["date"]), r["is_from_me"], text,
+                _resolve_sender(r["is_from_me"], r["sender_handle"]),
+            ))
         return out
 
     def summary_union(self, member_ids):
