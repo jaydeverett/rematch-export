@@ -41,7 +41,7 @@ APP_NAME = 'RematchExport'
 # Shown in the UI footer and returned by /api/health — bump with each release so
 # support can tell at a glance which build a tester is running (a v1.6.x debugging
 # session burned hours because no build was identifiable from screenshots).
-APP_VERSION = "1.8.2"
+APP_VERSION = "1.9.0"
 
 # Rematch backend — the pairing ingest endpoint the phone authorizes with a code.
 INGEST_URL = "https://rematch-app-orpin.vercel.app/api/imessage/ingest"
@@ -319,10 +319,16 @@ def api_health():
 @app.route("/qr-pair/start", methods=["POST"])
 def qr_pair_start():
     """Mint an unbound pairing code from the Rematch backend and render it as a
-    QR the phone scans (payload "rematch://pair?code=CODE" — a real deep link,
-    so the SYSTEM camera opens the Rematch app directly; the in-app scanner
-    accepts it too, plus the legacy "rematch-pair:CODE" form). The code
-    authorizes nothing until a signed-in phone links it."""
+    QR the phone scans (payload "rematch://pair?code=CODE&s=LINKSECRET" — a real
+    deep link, so the SYSTEM camera opens the Rematch app directly; the in-app
+    scanner accepts it too, plus the legacy forms). The code authorizes nothing
+    until a signed-in phone links it.
+
+    v1.9.0 channel binding: the backend mints two one-time secrets with the
+    code. linkSecret rides INSIDE the QR — the phone must echo it to bind, so a
+    shoulder-surfed six-character code can't be hijacked. depositSecret never
+    leaves this Mac except on the send itself: /upload-urls and /ingest require
+    it, so a code alone can't authorize writing conversations."""
     if not QR_AVAILABLE:
         return jsonify({"ok": False, "error": "QR unavailable in this build."})
     try:
@@ -332,12 +338,19 @@ def qr_pair_start():
         code = data.get("code")
         if not code:
             return jsonify({"ok": False, "error": "Couldn't get a code. Try again."})
-        img = qrcode.make(
-            f"rematch://pair?code={code}",
-            image_factory=qrcode.image.svg.SvgPathImage,
-        )
+        link_secret = data.get("linkSecret")
+        payload = f"rematch://pair?code={code}"
+        if link_secret:
+            payload += f"&s={link_secret}"
+        img = qrcode.make(payload, image_factory=qrcode.image.svg.SvgPathImage)
         svg = img.to_string().decode("utf-8")
-        return jsonify({"ok": True, "code": code, "expiresAt": data.get("expiresAt"), "svg": svg})
+        return jsonify({
+            "ok": True,
+            "code": code,
+            "expiresAt": data.get("expiresAt"),
+            "svg": svg,
+            "depositSecret": data.get("depositSecret"),
+        })
     except Exception:
         return jsonify({"ok": False, "error": "Couldn't reach Rematch."})
 
@@ -409,6 +422,9 @@ def send_to_phone():
     conversation index and downloads only what the user confirms."""
     data = request.get_json()
     code = (data.get("code") or "").strip().upper()
+    # v1.9.0: present on QR-paired sends; the backend requires it for
+    # QR-minted codes and ignores it for typed (phone-minted) ones.
+    deposit_secret = data.get("deposit_secret") or None
     if not code:
         return jsonify({"ok": False, "error": "Enter the code from your Rematch app."}), 400
 
@@ -419,10 +435,13 @@ def send_to_phone():
     SEND_PROGRESS.update(active=True, done=0, total=len(conversations))
     try:
         # 1. Signed upload URLs, one per conversation.
-        minted = _post_json(UPLOAD_URLS_URL, {
+        upload_req = {
             "code": code,
             "conversations": [{"name": c["name"], "count": len(c["rows"])} for c in conversations],
-        })
+        }
+        if deposit_secret:
+            upload_req["depositSecret"] = deposit_secret
+        minted = _post_json(UPLOAD_URLS_URL, upload_req)
         uploads = minted.get("uploads") or []
         if len(uploads) != len(conversations):
             return jsonify({"ok": False, "error": "Rematch didn't accept the upload. Try again."})
@@ -456,7 +475,10 @@ def send_to_phone():
             SEND_PROGRESS["done"] += 1
 
         # 3. Commit the manifest — flips the pairing slot to "received".
-        result = _post_json(INGEST_URL, {"code": code, "manifest": manifest})
+        ingest_req = {"code": code, "manifest": manifest}
+        if deposit_secret:
+            ingest_req["depositSecret"] = deposit_secret
+        result = _post_json(INGEST_URL, ingest_req)
         return jsonify({"ok": True, "conversationCount": result.get("conversationCount")})
     except urllib.error.HTTPError as e:
         return jsonify({"ok": False, "error": _http_error_message(e)})

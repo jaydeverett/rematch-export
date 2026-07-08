@@ -1406,6 +1406,9 @@
         // phone scans + links it. On link, the code drops into the input and the
         // user just presses Send. Typed code stays as the visible fallback.
         let qrCode = null;
+        // v1.9.0 channel binding: held in memory only, sent only on the send
+        // itself. Never rendered anywhere.
+        let qrDepositSecret = null;
         let qrLinked = false;
         let qrPollTimer = null;
 
@@ -1415,6 +1418,7 @@
                 const data = await res.json();
                 if (!data.ok) return; // QR unavailable — typed code carries the flow
                 qrCode = data.code;
+                qrDepositSecret = data.depositSecret || null;
                 qrLinked = false;
                 // A remint may follow a lapsed LINKED code — release the input
                 // the earlier link froze, so the typed-code fallback still works.
@@ -1507,10 +1511,16 @@
             }, 400);
 
             try {
+                // The deposit secret belongs to the QR-minted code only — a
+                // hand-typed code (phone-minted) has none and needs none.
+                const body = { chat_ids: chatIds, code };
+                if (qrCode && code === qrCode && qrDepositSecret) {
+                    body.deposit_secret = qrDepositSecret;
+                }
                 const res = await fetch('/send-to-phone', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ chat_ids: chatIds, code })
+                    body: JSON.stringify(body)
                 });
                 const data = await res.json();
                 if (data.ok) {
